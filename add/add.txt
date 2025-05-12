@@ -1,0 +1,19 @@
+face_recognition_app/
+│
+├── scripts/              # Все Python-скрипты
+│   ├── main.py           # Точка входа
+│   ├── face_detection.py # Логика распознавания
+│   ├── ui.py             # Интерфейс (PyQt/Tkinter)
+│   ├── config.py         # Настройки (пути, параметры)
+│   └── utils.py          # Вспомогательные функции
+│
+├── data/                 # Все данные
+│   ├── faces/            # Изображения лиц (user1/, user2/)
+│   ├── models/           # Модели (face_model.h5)
+│   └── settings.json     # Настройки приложения (если нужны)
+│
+├── requirements.txt      # Зависимости
+└── Dockerfile            # Для упаковки в Docker
+
+# Копирование окружения
+pip install -r requirements.txt
