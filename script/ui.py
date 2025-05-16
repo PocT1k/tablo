@@ -7,11 +7,12 @@ from PyQt5.QtGui import QImage, QPixmap
 import cv2
 import json
 import sounddevice as sd
+from threading import Thread
 
 from face import FaceProcessor
 from audio import AudioProcessor
 from load import check_exist, dict_get_or_set
-from conf import setting_json_path
+from conf import SETTING_JSON_PATH
 
 
 class SettingsWindow(QDialog):
@@ -63,10 +64,10 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         # Загрузка JSON настроек
-        check_exist(setting_json_path)
-        with open(setting_json_path, "r", encoding="utf-8") as f:
+        check_exist(SETTING_JSON_PATH)
+        with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
             self.setting_json = json.load(f)
-        self.settings_path = setting_json_path
+        self.settings_path = SETTING_JSON_PATH
 
         # Заголовок и геометрия окна
         win_conf = dict_get_or_set(self.setting_json, "Window", {})
@@ -299,22 +300,23 @@ class MainWindow(QMainWindow):
         self._save_settings()
 
     def _toggle_processing(self):
-        # Стартуем видео
-        if not self.face_processor.start_camera():
-            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модель или открыть камеру.")
-            return
-        # Стартуем аудио
-        if not self.audio_processor.start_microphone():
-            QMessageBox.critical(self, "Ошибка", "Не удалось открыть микрофон.")
-            return
         # Переключение таймера
         if not self.timer.isActive():
+            # Стартуем видео
+            if not self.face_processor.start_camera():
+                QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модель или открыть камеру.")
+                return
+            # Стартуем аудио
+            if not self.audio_processor.start_microphone():
+                QMessageBox.critical(self, "Ошибка", "Не удалось открыть микрофон.")
+                return
+
             self.timer.start(30)
             print("[UI] Запущены видео и аудио")
         else:
             self.timer.stop()
             self.face_processor.stop_camera()
-            self.audio_processor.stop_microphone()
+            self.audio_processor.stop_processing()
             self.video_label.clear()
             print("[UI] Остановлены видео и аудио")
 
@@ -336,9 +338,9 @@ class MainWindow(QMainWindow):
         )
         self.video_label.setPixmap(pix)
 
-        # Audio-обработчик (запуск recognize_loop в фоновом потоке один раз)
+        # Audio-обработчик
         if not getattr(self, "_audio_thread_started", False):
-            from threading import Thread
-            Thread(target=self.audio_processor.recognize_loop, daemon=True).start()
+            self.audio_processor.running_recognition_world = True
+            self.audio_processor.running_classification_indices = True
+            Thread(target=self.audio_processor.recognize_audio, daemon=True).start()
             self._audio_thread_started = True
-

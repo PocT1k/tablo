@@ -1,27 +1,34 @@
 from pathlib import Path
 
-data_path = Path(Path(__file__).parent.parent / "data").expanduser().resolve()
-setting_json_path = Path(data_path / "setting.json").expanduser().resolve()
+# Базовая папка проекта (где лежит этот conf.py)
+BASE_DIR = Path(__file__).parent.parent.resolve()
 
-# модели
-model_path = Path(data_path / "model").expanduser().resolve()
-# лица для обучения
-face_path = Path(data_path / "face").expanduser().resolve()
-dataset_to_convert_path = Path(face_path / "dataset").expanduser().resolve()
-dataset_converted_path = Path(face_path / "dataset_converted").expanduser().resolve()
-# распознование лиц
-face_model_path = Path(model_path / "face" / "face_classifier.pkl").expanduser().resolve()
-face_model_old_path = Path(model_path / "old").expanduser().resolve()
-# распознование текста из звука
-vosk_model_path = Path(model_path / "voice" / "vosk-model-small-ru-0.22").expanduser().resolve()
-# распознованите действий из звука
-yamnet_model_path = Path(model_path / "voice" / "yamnet").expanduser().resolve()
+# Папка с данными, настройками, моделями и логами
+DATA_DIR    = BASE_DIR / "data"
+MODEL_DIR   = DATA_DIR / "model"
+FACE_DIR    = DATA_DIR / "face"
+LOG_DIR     = DATA_DIR / "log"
 
-# логирование
-log_path = Path(data_path / "log").expanduser().resolve()
-# распознование лиц
-face_attendance_path = Path(log_path / "face_attendance.csv").expanduser().resolve()
-face_attendance_old_path = Path(log_path / "face_old").expanduser().resolve()
-# распознование текста из звука
-vosk_world_path = Path(log_path / "vosk_world.csv").expanduser().resolve()
-vosk_world_old_path = Path(log_path / "vosk_old").expanduser().resolve()
+# Путь к файлу настроек
+SETTING_JSON_PATH = DATA_DIR / "setting.json"
+
+# Директории для обучения face-recognition
+DATASET_RAW_DIR      = FACE_DIR / "dataset"
+DATASET_CONVERTED_DIR= FACE_DIR / "dataset_converted"
+
+# Модели
+# Распознование лица
+FACE_MODEL_PATH       = MODEL_DIR / "face" / "face_classifier.pkl"
+FACE_MODEL_OLD_DIR    = MODEL_DIR / "face_old"
+# Распознавание речи (Vosk)
+VOSK_MODEL_PATH        = MODEL_DIR / "voice" / "vosk-model-small-ru-0.22"
+# Классификация звуков (YAMNet)
+YAMNET_MODEL_PATH      = MODEL_DIR / "voice" / "yamnet"
+
+# Логи
+FACE_ATTENDANCE_PATH      = LOG_DIR / "face_attendance.csv"
+FACE_ATTENDANCE_OLD_DIR   = LOG_DIR / "face_old"
+VOSK_WORLD_PATH           = LOG_DIR / "vosk_world.csv"
+VOSK_WORLD_OLD_DIR        = LOG_DIR / "vosk_old"
+YAMNET_INDICES_PATH       = LOG_DIR / "yamnet_indices.csv"
+YAMNET_INDICES_OLD_DIR    = LOG_DIR / "yamnet_old"

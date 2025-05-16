@@ -1,4 +1,5 @@
-import sys, json
+import tensorflow_hub as hub
+import sys
 from PyQt5.QtWidgets import QApplication
 
 from ui import MainWindow

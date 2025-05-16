@@ -7,15 +7,14 @@ from sklearn.svm import SVC
 import face_recognition
 from datetime import datetime
 
-from load import dict_get_or_set, load_face_model, archive_file
-from conf import face_model_path # модели
-from conf import face_model_old_path # модели старого обучения
-from conf import face_attendance_path, face_attendance_old_path, dataset_converted_path, dataset_to_convert_path # файлы логирования и датасеты
+from load import dict_get_or_set, archive_file
+from conf import (FACE_MODEL_PATH, # модели
+    FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, # файлы логирования
+    DATASET_CONVERTED_DIR, DATASET_RAW_DIR) # датасеты
 
 
 class FaceProcessor:
     def __init__(self, settings=None):
-        self.face_model = load_face_model()
         self.settings = settings or {}
 
         # Интервал распознавания (секунды) и индекс камеры
@@ -32,11 +31,11 @@ class FaceProcessor:
         self.last_attendance = {}
 
         # Архивация attendance
-        archive_file(face_attendance_path, face_attendance_old_path, True)
+        archive_file(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
 
     def start_camera(self):
-        if os.path.exists(face_model_path):
-            with open(face_model_path, "rb") as f:
+        if os.path.exists(FACE_MODEL_PATH):
+            with open(FACE_MODEL_PATH, "rb") as f:
                 self.face_model = pickle.load(f)
         else:
             self.face_model = None
@@ -92,9 +91,9 @@ class FaceProcessor:
             if not locs:
                 date_str = now.strftime("%Y-%m-%d")
                 time_str = now.strftime("%H:%M:%S")
-                with open(face_attendance_path, "a", encoding="cp1251", newline="") as f:
+                with open(FACE_ATTENDANCE_PATH, "a", encoding="cp1251", newline="") as f:
                     f.write(f"{date_str},{time_str},None\n")
-                print(f"[ATTENDANCE] {date_str} {time_str} - None")
+                print(f"[FACE] {date_str} {time_str} - None")
             else:
                 # обрабатываем каждое найденное лицо
                 for (top, right, bottom, left), enc in zip(locs, encs):
@@ -120,9 +119,9 @@ class FaceProcessor:
                     # отметка посещаемости (для любого лица)
                     date_str = now.strftime("%Y-%m-%d")
                     time_str = now.strftime("%H:%M:%S")
-                    with open(face_attendance_path, "a") as f:
+                    with open(FACE_ATTENDANCE_PATH, "a") as f:
                         f.write(f"{date_str},{time_str},{name}\n")
-                    print(f"[ATTENDANCE] {date_str} {time_str} - {name}")
+                    print(f"[FACE] {date_str} {time_str} - {name}")
                     self.last_attendance[name] = now
 
                     self.last_results.append({
@@ -147,11 +146,11 @@ class FaceProcessor:
         return processed, self.last_results
 
     def _convert_image(self):
-        os.makedirs(dataset_converted_path, exist_ok=True)
+        os.makedirs(DATASET_CONVERTED_DIR, exist_ok=True)
 
-        for student_name in os.listdir(dataset_to_convert_path):
-            student_dir = os.path.join(dataset_to_convert_path, student_name)
-            output_dir = os.path.join(dataset_converted_path, student_name)
+        for student_name in os.listdir(DATASET_RAW_DIR):
+            student_dir = os.path.join(DATASET_RAW_DIR, student_name)
+            output_dir = os.path.join(DATASET_CONVERTED_DIR, student_name)
             os.makedirs(output_dir, exist_ok=True)
 
             if not os.path.isdir(student_dir):
@@ -163,12 +162,12 @@ class FaceProcessor:
                 # Пропускаем не-изображения
                 valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
                 if not img_name.lower().endswith(valid_extensions):
-                    print(f"[SKIP] Пропущен не-изображение: {img_path}")
+                    print(f"[SKIP IMG] Пропущен не-изображение: {img_path}")
                     continue
 
                 image = cv2.imread(img_path)
                 if image is None:
-                    print(f"[WARNING] Не удалось загрузить {img_path}")
+                    print(f"[WARNING IMG] Не удалось загрузить {img_path}")
                     continue
 
                 try:
@@ -186,10 +185,10 @@ class FaceProcessor:
                     output_file = os.path.join(output_dir, os.path.splitext(img_name)[0] + ".jpg")
                     cv2.imwrite(output_file, rgb_image)  # автоматически как RGB
 
-                    print(f"[INFO] Сохранено {output_file}")
+                    print(f"[INFO IMG] Сохранено {output_file}")
 
                 except Exception as e:
-                    print(f"[ERROR] Ошибка при обработке {img_path}: {str(e)}")
+                    print(f"[ERROR IMG] Ошибка при обработке {img_path}: {str(e)}")
 
     def _load_dataset(self, dataset_converted_path):
         encodings = []
@@ -204,20 +203,20 @@ class FaceProcessor:
                 img_path = os.path.join(student_dir, img_name)
                 image = cv2.imread(img_path)
                 if image is None:
-                    print(f"[WARNING] Не удалось загрузить {img_path}")
+                    print(f"[WARNING IMG] Не удалось загрузить {img_path}")
                     continue
 
                 print(f"[DEBUG] {img_path}: shape={image.shape}, dtype={image.dtype}")
                 if len(image.shape) != 3 or image.shape[2] not in [3, 4]:
-                    print(f"[ERROR] Неподдерживаемый формат изображения {img_path}: shape={image.shape}")
+                    print(f"[ERROR IMG] Неподдерживаемый формат изображения {img_path}: shape={image.shape}")
                     continue
                 if image.shape[2] == 4:
-                    print(f"[INFO] Убираем альфа-канал для {img_path}")
+                    print(f"[INFO IMG] Убираем альфа-канал для {img_path}")
                     image = image[:, :, :3]
 
                 rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 rgb_image = np.array(rgb_image, dtype=np.uint8)
-                print(f"[DEBUG] После обработки: shape={rgb_image.shape}, dtype={rgb_image.dtype}")
+                print(f"[DEBUG IMG] После обработки: shape={rgb_image.shape}, dtype={rgb_image.dtype}")
 
                 try:
                     boxes = face_recognition.face_locations(rgb_image)
@@ -228,7 +227,7 @@ class FaceProcessor:
                     encodings.append(encoding)
                     names.append(student_name)
                 except RuntimeError as e:
-                    print(f"[ERROR] Ошибка обработки {img_path}: {str(e)}")
+                    print(f"[ERROR IMG] Ошибка обработки {img_path}: {str(e)}")
                     continue
 
         return encodings, names
@@ -238,7 +237,7 @@ class FaceProcessor:
         self._convert_image()
 
         # загрузка данных
-        known_encs, known_names = self._load_dataset(dataset_converted_path)
+        known_encs, known_names = self._load_dataset(DATASET_CONVERTED_DIR)
         if not known_encs:
             raise ValueError("Нет изображений для обучения. Добавьте фото в папку датасета.")
 
@@ -251,13 +250,13 @@ class FaceProcessor:
 
         # сохр старую
         try:
-            archive_file(face_model_path, face_model_old_path, create_file=True)
+            archive_file(FACE_MODEL_PATH, FACE_MODEL_PATH, create_file=True)
         except Exception as e:
-            print(f"[WARN] Не удалось архивировать старую модель: {e}")
+            print(f"[WARNING IMG] Не удалось архивировать старую модель: {e}")
 
         # сохр новую
         try:
-            with open(face_model_path, "wb") as f:
+            with open(FACE_MODEL_PATH, "wb") as f:
                 pickle.dump(clf, f)
         except Exception as e:
             raise IOError(f"Не удалось сохранить новую модель: {e}")

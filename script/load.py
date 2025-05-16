@@ -4,34 +4,21 @@ import shutil
 from datetime import datetime
 from typing import Any
 
-from conf import face_model_path
-
 
 def check_exist(file_path: str):
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
 """Получить или сдел зн. по умолчанию: (dict, ключ, зн. по умолч.)"""
-def dict_get_or_set(dict_data: dict, key: str, default_value: Any, set_dict = True) -> Any:
+def dict_get_or_set(dict_data: dict, key: str, default_value: Any) -> Any:
     value = dict_data.get(key)
 
     if value is None: # Если ключ не найден
-        print(f"[LOAD] Не найден ключ: '{key}', подставленно: {default_value}")
-        if set_dict: dict_data[key] = default_value # изменяем dict если флаг
+        if default_value:
+            dict_data[key] = default_value # изменяем dict если флаг
+            print(f"[LOAD] Не найден ключ: '{key}', подставленно: {default_value}")
         value = default_value
 
     return value
-
-def load_face_model():
-    if os.path.exists(face_model_path):
-        with open(face_model_path, "rb") as f:
-            face_model = pickle.load(f)
-        print("[LOAD] Модель распознования лиц загружена")
-    else:
-        face_model = None
-        print("[LOAD] Модель распознования не обнаружена")
-
-    return face_model
-
 
 def archive_file(file_path: str, archive_dir: str, create_file = False):
     # Убедимся, что папка архива существует
