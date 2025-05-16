@@ -8,7 +8,9 @@ import face_recognition
 from datetime import datetime
 
 from load import dict_get_or_set, load_face_model, archive_file
-from conf import attendance_path, face_model_path, face_model_old_path, dataset_converted_path, dataset_to_convert_path
+from conf import face_model_path # модели
+from conf import face_model_old_path # модели старого обучения
+from conf import face_attendance_path, face_attendance_old_path, dataset_converted_path, dataset_to_convert_path # файлы логирования и датасеты
 
 
 class FaceProcessor:
@@ -17,7 +19,7 @@ class FaceProcessor:
         self.settings = settings or {}
 
         # Интервал распознавания (секунды) и индекс камеры
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_image", 1)
+        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_face", 2)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
         self.face_recognition_index = dict_get_or_set(self.settings, "face_recognition_index", 0.6)
 
@@ -29,6 +31,9 @@ class FaceProcessor:
         # Для отметки посещаемости
         self.last_attendance = {}
 
+        # Архивация attendance
+        archive_file(face_attendance_path, face_attendance_old_path, True)
+
     def start_camera(self):
         if os.path.exists(face_model_path):
             with open(face_model_path, "rb") as f:
@@ -39,23 +44,6 @@ class FaceProcessor:
         if self.face_model is None:
             print("[VIDEO] Модель не найдена, камеру не открываем")
             return False
-
-        # 1) список камер
-        try:
-            from pygrabber.dshow_graph import FilterGraph
-            cams = FilterGraph().get_input_devices()
-            print("[VIDEO] Доступные камеры (DirectShow):")
-            for i, name in enumerate(cams):
-                print(f"  index={i}, name={name}")
-        except ImportError:
-            print("[VIDEO] pygrabber не установлен, ищем по индексам:")
-            for i in range(10):
-                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-                if cap.isOpened():
-                    ret, _ = cap.read()
-                    if ret:
-                        print(f"  index={i}, name=Камера {i}")
-                    cap.release()
 
         # 2) попытка открыть выбранную камеру
         idx = self.camera_index
@@ -104,7 +92,7 @@ class FaceProcessor:
             if not locs:
                 date_str = now.strftime("%Y-%m-%d")
                 time_str = now.strftime("%H:%M:%S")
-                with open(attendance_path, "a") as f:
+                with open(face_attendance_path, "a", encoding="cp1251", newline="") as f:
                     f.write(f"{date_str},{time_str},None\n")
                 print(f"[ATTENDANCE] {date_str} {time_str} - None")
             else:
@@ -132,7 +120,7 @@ class FaceProcessor:
                     # отметка посещаемости (для любого лица)
                     date_str = now.strftime("%Y-%m-%d")
                     time_str = now.strftime("%H:%M:%S")
-                    with open(attendance_path, "a") as f:
+                    with open(face_attendance_path, "a") as f:
                         f.write(f"{date_str},{time_str},{name}\n")
                     print(f"[ATTENDANCE] {date_str} {time_str} - {name}")
                     self.last_attendance[name] = now

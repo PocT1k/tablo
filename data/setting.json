@@ -4,8 +4,9 @@
         "h": 0.5,
         "w": 0.4
     },
-    "recognition_time_image": 1,
     "camera": 0,
+    "recognition_time_face": 3,
+    "face_recognition_index": 0.5,
     "microphone": 1,
-    "face_recognition_index": 0.5
+    "recognition_time_world": 5
 }

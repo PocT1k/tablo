@@ -6,11 +6,12 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 import cv2
 import json
+import sounddevice as sd
 
 from face import FaceProcessor
 from audio import AudioProcessor
-from load import archive_file, check_exist, dict_get_or_set
-from conf import attendance_path, attendance_old_path, setting_json_path
+from load import check_exist, dict_get_or_set
+from conf import setting_json_path
 
 
 class SettingsWindow(QDialog):
@@ -77,9 +78,6 @@ class MainWindow(QMainWindow):
         self.move((screen.width() - self.width()) // 2,
                   (screen.height() - self.height()) // 2)
 
-        # Архивация attendance
-        archive_file(attendance_path, attendance_old_path, True)
-
         # Инициализация процессоров
         self.face_processor = FaceProcessor(self.setting_json)
         self.audio_processor = AudioProcessor(self.setting_json)
@@ -105,6 +103,29 @@ class MainWindow(QMainWindow):
         # Таймер для обновления видео
         self.timer = QTimer()
         self.timer.timeout.connect(self._update_frame)
+
+        # список камер
+        try:
+            from pygrabber.dshow_graph import FilterGraph
+            cams = FilterGraph().get_input_devices()
+            print("[VIDEO] Доступные камеры (DirectShow):")
+            for i, name in enumerate(cams):
+                print(f"  index={i}, name={name}")
+        except ImportError:
+            print("[VIDEO] pygrabber не установлен, ищем по индексам:")
+            for i in range(10):
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        print(f"  index={i}, name=Камера {i}")
+                    cap.release()
+        # список микрофонов
+        devs = sd.query_devices()
+        inputs = [d for d in devs if d['max_input_channels'] > 0]
+        print("[AUDIO] Доступные устройства ввода:")
+        for i, d in enumerate(inputs):
+            print(f"  [{i}] index={d['index']} name={d['name']}")
 
     def _save_settings(self):
         try:
@@ -278,7 +299,7 @@ class MainWindow(QMainWindow):
         self._save_settings()
 
     def _toggle_processing(self):
-        # Стартуем видео (подгрузка модели внутри)
+        # Стартуем видео
         if not self.face_processor.start_camera():
             QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модель или открыть камеру.")
             return
@@ -302,6 +323,7 @@ class MainWindow(QMainWindow):
         self.settings_win.show()
 
     def _update_frame(self):
+        # Видеопоток
         ret, frame = self.face_processor.get_frame()
         if not ret:
             return
@@ -313,3 +335,10 @@ class MainWindow(QMainWindow):
             self.video_label.size(), Qt.KeepAspectRatio
         )
         self.video_label.setPixmap(pix)
+
+        # Audio-обработчик (запуск recognize_loop в фоновом потоке один раз)
+        if not getattr(self, "_audio_thread_started", False):
+            from threading import Thread
+            Thread(target=self.audio_processor.recognize_loop, daemon=True).start()
+            self._audio_thread_started = True
+
