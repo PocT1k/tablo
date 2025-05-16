@@ -1,23 +1,25 @@
 # face.py
+import os
+import pickle
 import cv2
 import numpy as np
+from sklearn.svm import SVC
 import face_recognition
 from datetime import datetime
-from funk import dict_get_or_set
+
+from load import dict_get_or_set, load_face_model, archive_file
+from conf import attendance_path, face_model_path, face_model_old_path, dataset_converted_path, dataset_to_convert_path
 
 
 class FaceProcessor:
-    def __init__(self, model, settings=None):
-        """
-        :param model: обученная модель для распознавания лиц (SVC)
-        :param settings: полный JSON со всеми ключами, включая 'camera' и 'recognition_time'
-        """
-        self.model = model
+    def __init__(self, settings=None):
+        self.face_model = load_face_model()
         self.settings = settings or {}
 
         # Интервал распознавания (секунды) и индекс камеры
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time", 1)
+        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_image", 1)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
+        self.face_recognition_index = dict_get_or_set(self.settings, "face_recognition_index", 0.6)
 
         self.video_capture = None
         # Для кэширования результатов между распознаваниями
@@ -28,9 +30,43 @@ class FaceProcessor:
         self.last_attendance = {}
 
     def start_camera(self):
-        """Запуск видеопотока по индексу из настроек"""
-        self.video_capture = cv2.VideoCapture(self.camera_index)
-        return self.video_capture.isOpened()
+        if os.path.exists(face_model_path):
+            with open(face_model_path, "rb") as f:
+                self.face_model = pickle.load(f)
+        else:
+            self.face_model = None
+
+        if self.face_model is None:
+            print("[VIDEO] Модель не найдена, камеру не открываем")
+            return False
+
+        # 1) список камер
+        try:
+            from pygrabber.dshow_graph import FilterGraph
+            cams = FilterGraph().get_input_devices()
+            print("[VIDEO] Доступные камеры (DirectShow):")
+            for i, name in enumerate(cams):
+                print(f"  index={i}, name={name}")
+        except ImportError:
+            print("[VIDEO] pygrabber не установлен, ищем по индексам:")
+            for i in range(10):
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        print(f"  index={i}, name=Камера {i}")
+                    cap.release()
+
+        # 2) попытка открыть выбранную камеру
+        idx = self.camera_index
+        print(f"[VIDEO] Попытка открыть камеру idx={idx}")
+        self.video_capture = cv2.VideoCapture(idx)
+        if not self.video_capture.isOpened():
+            print(f"[VIDEO ERROR] Не удалось открыть камеру {idx}")
+            return False
+
+        print(f"[VIDEO] Камера {idx} успешно открыта")
+        return True
 
     def stop_camera(self):
         """Остановка видеопотока"""
@@ -44,16 +80,10 @@ class FaceProcessor:
         return False, None
 
     def process_frame(self, frame):
-        """
-        Если с последнего распознавания прошло >= recognition_time,
-        выполняем детекцию + распознавание и обновляем last_results,
-        иначе просто рисуем предыдущие рамки.
-        Также при распознавании отмечаем attendance.csv.
-        """
         now = datetime.now()
         do_detect = (
-            self.last_detection_time is None or
-            (now - self.last_detection_time).total_seconds() >= self.recognition_time
+                self.last_detection_time is None or
+                (now - self.last_detection_time).total_seconds() >= self.recognition_time
         )
 
         processed = frame.copy()
@@ -63,48 +93,55 @@ class FaceProcessor:
             self.last_detection_time = now
             self.last_results = []
 
-            # масштаб для детекции
+            # масштабируем для детекции
             small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
             rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
             locs = face_recognition.face_locations(rgb_small)
             encs = face_recognition.face_encodings(rgb_small, locs)
 
-            for (top, right, bottom, left), enc in zip(locs, encs):
-                probs = self.model.predict_proba([enc])[0]
-                idx = np.argmax(probs)
-                name = self.model.classes_[idx]
-                conf = probs[idx]
-                if conf < 0.6:
-                    name = "Unknown"
+            # если лица не найдены — записываем None
+            if not locs:
+                date_str = now.strftime("%Y-%m-%d")
+                time_str = now.strftime("%H:%M:%S")
+                with open(attendance_path, "a") as f:
+                    f.write(f"{date_str},{time_str},None\n")
+                print(f"[ATTENDANCE] {date_str} {time_str} - None")
+            else:
+                # обрабатываем каждое найденное лицо
+                for (top, right, bottom, left), enc in zip(locs, encs):
+                    probs = self.face_model.predict_proba([enc])[0]
+                    idx = np.argmax(probs)
+                    name = self.face_model.classes_[idx]
+                    conf = probs[idx]
+                    if conf < self.face_recognition_index:
+                        name = "Unknown"
 
-                # масштаб обратно
-                top *= 2; right *= 2; bottom *= 2; left *= 2
+                    # масштаб обратно
+                    top *= 2; right *= 2; bottom *= 2; left *= 2
 
-                # рисуем рамку
-                cv2.rectangle(processed, (left, top), (right, bottom), (0, 255, 0), 2)
-                cv2.putText(
-                    processed,
-                    f"{name} ({conf*100:.1f}%)",
-                    (left, top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
-                )
+                    # рисуем рамку и подпись
+                    cv2.rectangle(processed, (left, top), (right, bottom), (0, 255, 0), 2)
+                    cv2.putText(
+                        processed,
+                        f"{name} ({conf * 100:.1f}%)",
+                        (left, top - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
+                    )
 
-                # отметка посещаемости
-                if name != "Unknown":
-                    last_t = self.last_attendance.get(name)
-                    if last_t is None or (now - last_t).total_seconds() >= self.recognition_time:
-                        ts = now.strftime("%Y-%m-%d %H:%M:%S")
-                        with open("attendance.csv", "a") as f:
-                            f.write(f"{name},{ts}\n")
-                        print(f"[ATTENDANCE] {name} отмечен(а) в {ts}")
-                        self.last_attendance[name] = now
+                    # отметка посещаемости (для любого лица)
+                    date_str = now.strftime("%Y-%m-%d")
+                    time_str = now.strftime("%H:%M:%S")
+                    with open(attendance_path, "a") as f:
+                        f.write(f"{date_str},{time_str},{name}\n")
+                    print(f"[ATTENDANCE] {date_str} {time_str} - {name}")
+                    self.last_attendance[name] = now
 
-                self.last_results.append({
-                    "name": name,
-                    "confidence": float(conf),
-                    "location": (top, right, bottom, left)
-                })
+                    self.last_results.append({
+                        "name": name,
+                        "confidence": float(conf),
+                        "location": (top, right, bottom, left)
+                    })
         else:
             # просто рисуем прошлые рамки
             for res in self.last_results:
@@ -114,9 +151,129 @@ class FaceProcessor:
                 cv2.rectangle(processed, (left, top), (right, bottom), (0, 255, 0), 2)
                 cv2.putText(
                     processed,
-                    f"{name} ({conf*100:.1f}%)",
+                    f"{name} ({conf * 100:.1f}%)",
                     (left, top - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
                 )
 
         return processed, self.last_results
+
+    def _convert_image(self):
+        os.makedirs(dataset_converted_path, exist_ok=True)
+
+        for student_name in os.listdir(dataset_to_convert_path):
+            student_dir = os.path.join(dataset_to_convert_path, student_name)
+            output_dir = os.path.join(dataset_converted_path, student_name)
+            os.makedirs(output_dir, exist_ok=True)
+
+            if not os.path.isdir(student_dir):
+                continue
+
+            for img_name in os.listdir(student_dir):
+                img_path = os.path.join(student_dir, img_name)
+
+                # Пропускаем не-изображения
+                valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
+                if not img_name.lower().endswith(valid_extensions):
+                    print(f"[SKIP] Пропущен не-изображение: {img_path}")
+                    continue
+
+                image = cv2.imread(img_path)
+                if image is None:
+                    print(f"[WARNING] Не удалось загрузить {img_path}")
+                    continue
+
+                try:
+                    # image = cv2.resize(image, (256, 256)) # ресайз
+
+                    # Улучшение контраста
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                    gray_norm = clahe.apply(gray)
+
+                    # После улучшения контраста GRAY → RGB
+                    rgb_image = cv2.cvtColor(gray_norm, cv2.COLOR_GRAY2RGB)
+
+                    # Сохранение
+                    output_file = os.path.join(output_dir, os.path.splitext(img_name)[0] + ".jpg")
+                    cv2.imwrite(output_file, rgb_image)  # автоматически как RGB
+
+                    print(f"[INFO] Сохранено {output_file}")
+
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке {img_path}: {str(e)}")
+
+    def _load_dataset(self, dataset_converted_path):
+        encodings = []
+        names = []
+
+        for student_name in os.listdir(dataset_converted_path):
+            student_dir = os.path.join(dataset_converted_path, student_name)
+            if not os.path.isdir(student_dir):
+                continue
+
+            for img_name in os.listdir(student_dir):
+                img_path = os.path.join(student_dir, img_name)
+                image = cv2.imread(img_path)
+                if image is None:
+                    print(f"[WARNING] Не удалось загрузить {img_path}")
+                    continue
+
+                print(f"[DEBUG] {img_path}: shape={image.shape}, dtype={image.dtype}")
+                if len(image.shape) != 3 or image.shape[2] not in [3, 4]:
+                    print(f"[ERROR] Неподдерживаемый формат изображения {img_path}: shape={image.shape}")
+                    continue
+                if image.shape[2] == 4:
+                    print(f"[INFO] Убираем альфа-канал для {img_path}")
+                    image = image[:, :, :3]
+
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                rgb_image = np.array(rgb_image, dtype=np.uint8)
+                print(f"[DEBUG] После обработки: shape={rgb_image.shape}, dtype={rgb_image.dtype}")
+
+                try:
+                    boxes = face_recognition.face_locations(rgb_image)
+                    if len(boxes) == 0:
+                        print(f"[INFO] Лицо не найдено на {img_path}")
+                        continue
+                    encoding = face_recognition.face_encodings(rgb_image, boxes)[0]
+                    encodings.append(encoding)
+                    names.append(student_name)
+                except RuntimeError as e:
+                    print(f"[ERROR] Ошибка обработки {img_path}: {str(e)}")
+                    continue
+
+        return encodings, names
+
+    def retrain_model(self):
+        # конвертация
+        self._convert_image()
+
+        # загрузка данных
+        known_encs, known_names = self._load_dataset(dataset_converted_path)
+        if not known_encs:
+            raise ValueError("Нет изображений для обучения. Добавьте фото в папку датасета.")
+
+        # обучение
+        clf = SVC(probability=True, kernel='linear')
+        try:
+            clf.fit(known_encs, known_names)
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при обучении модели: {e}")
+
+        # сохр старую
+        try:
+            archive_file(face_model_path, face_model_old_path, create_file=True)
+        except Exception as e:
+            print(f"[WARN] Не удалось архивировать старую модель: {e}")
+
+        # сохр новую
+        try:
+            with open(face_model_path, "wb") as f:
+                pickle.dump(clf, f)
+        except Exception as e:
+            raise IOError(f"Не удалось сохранить новую модель: {e}")
+
+        # обновляем работающий экземпляр
+        self.face_model = clf
+        return True
