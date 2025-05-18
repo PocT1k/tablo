@@ -5,16 +5,16 @@ BASE_DIR = Path(__file__).parent.parent.resolve()
 
 # Папка с данными, настройками, моделями и логами
 DATA_DIR = BASE_DIR / "data"
-MODEL_DIR = DATA_DIR / "model"
-FACE_DIR = DATA_DIR / "face"
-LOG_DIR = DATA_DIR / "log"
+MODEL_DIR = DATA_DIR / "models"
+PEOPLE_DIR = DATA_DIR / "people"
+LOG_DIR = DATA_DIR / "logs"
 
 # Путь к файлу настроек
 SETTING_JSON_PATH = DATA_DIR / "setting.json"
 
 # Директории для обучения face-recognition
-DATASET_RAW_DIR = FACE_DIR / "dataset"
-DATASET_CONVERTED_DIR = FACE_DIR / "dataset_converted"
+DATASET_RAW_DIR = PEOPLE_DIR / "dataset"
+DATASET_CONVERTED_DIR = PEOPLE_DIR / "dataset_converted"
 
 # Модели
 # Папка зображений

@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QPushButton, QLabel, QDialog,
-    QVBoxLayout, QInputDialog, QMessageBox
+    QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit,
+    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit,
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
@@ -8,6 +8,7 @@ import cv2
 import json
 import sounddevice as sd
 from threading import Thread
+from datetime import datetime
 
 from image import ImageProcessor
 from audio import AudioProcessor
@@ -34,7 +35,7 @@ class SettingsWindow(QDialog):
         # Компоновка
         layout = QVBoxLayout(self)
 
-        # Кнопка «Информация»
+        # Кнопка Информация
         info_btn = QPushButton("Информация", self)
         info_btn.clicked.connect(
             lambda: QMessageBox.information(
@@ -45,19 +46,78 @@ class SettingsWindow(QDialog):
         )
         layout.addWidget(info_btn)
 
+        # Кнопка переобучени
         retrain_btn = QPushButton("Начать переобучение\nраспознования лиц", self)
         retrain_btn.clicked.connect(self.on_retrain_clicked)
         layout.addWidget(retrain_btn)
 
+        # Кнопка статистика
+        stats_btn = QPushButton("Узнать статистику рабочего", self)
+        stats_btn.clicked.connect(self.on_stats_clicked)
+        layout.addWidget(stats_btn)
+
         self.setLayout(layout)
 
     def on_retrain_clicked(self):
+        # Спрашиваем подтверждение
+        reply = QMessageBox.question(self, "Подтвердить переобучение", "Начать переобучение?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         try:
             self.parent.image_processor.retrain_model()
         except Exception as e:
             QMessageBox.critical(self, "Ошибка переобучения", str(e))
         else:
             QMessageBox.information(self, "Успех", "Модель успешно переобучена!")
+
+    def on_stats_clicked(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Введите период статистики")
+        form = QFormLayout(dlg)
+
+        date_edit = QDateEdit(dlg)
+        date_edit.setCalendarPopup(True)
+        date_edit.setDate(datetime.today().date())
+        form.addRow("Дата:", date_edit)
+
+        start_edit = QTimeEdit(dlg)
+        start_edit.setDisplayFormat("HH:mm:ss")
+        start_edit.setTime(datetime.now().time().replace(microsecond=0))
+        form.addRow("Время начала:", start_edit)
+
+        end_edit = QTimeEdit(dlg)
+        end_edit.setDisplayFormat("HH:mm:ss")
+        end_edit.setTime(datetime.now().time().replace(microsecond=0))
+        form.addRow("Время окончания:", end_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        form.addRow(buttons)
+
+        def accept():
+            d = date_edit.date().toPyDate()
+            t0 = start_edit.time().toPyTime()
+            t1 = end_edit.time().toPyTime()
+            # проверка порядка
+            dt0 = datetime.combine(d, t0)
+            dt1 = datetime.combine(d, t1)
+            if dt0 >= dt1:
+                QMessageBox.warning(dlg, "Ошибка", "Время начала должно быть раньше времени окончания")
+                return
+            # передаём наружу
+            self.stat_period = (d, t0, t1)
+            dlg.accept()
+
+        buttons.accepted.connect(accept)
+        buttons.rejected.connect(dlg.reject)
+
+        if dlg.exec_() == QDialog.Accepted:
+            # здесь self.stat_period = (date, time_start, time_end)
+            print("Период:", self.stat_period)
+            # дальше можно использовать self.stat_period в родителе
 
 class MainWindow(QMainWindow):
     def __init__(self):
