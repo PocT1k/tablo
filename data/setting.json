@@ -4,25 +4,58 @@
         "h": 0.5,
         "w": 0.4
     },
-
     "camera": 0,
     "recognition_time_face": 3,
     "face_recognition_index": 0.5,
-
     "microphone": 1,
-    "recognition_time_vosk": 5,
-
     "recognition_time": 3,
+    "recognition_time_add": 0.5,
+    "vosk_sr": 16000,
     "indices_recognition_index": 0.6,
     "yamnet_sr": 16000,
     "target_indices_yamnet": {
-        "speech":   [0,1,2,3,4,5,6,7,8,9,10,11,12,63,65],
-        "typing":   [378,379,380,381,409],
-        "media":    [24,132,383,384,385,386,387,388,389,507,518,519]
+        "speech": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            63,
+            65
+        ],
+        "typing": [
+            378,
+            379,
+            380,
+            381,
+            409
+        ],
+        "media": [
+            24,
+            132,
+            383,
+            384,
+            385,
+            386,
+            387,
+            388,
+            389,
+            507,
+            518,
+            519
+        ]
     },
     "weights_indices_yamnet": {
-        "speech":   0.9,
-        "typing":   1.0,
-        "media":    0.7
+        "speech": 0.9,
+        "typing": 1.2,
+        "media": 0.7
     }
 }

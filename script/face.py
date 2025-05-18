@@ -7,7 +7,7 @@ from sklearn.svm import SVC
 import face_recognition
 from datetime import datetime
 
-from load import dict_get_or_set, archive_file
+from load import dict_get_or_set, archive_file, archive_file_by_date, write_attendance_dated
 from conf import (FACE_MODEL_PATH, # модели
     FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, # файлы логирования
     DATASET_CONVERTED_DIR, DATASET_RAW_DIR) # датасеты
@@ -31,8 +31,7 @@ class FaceProcessor:
         self.last_attendance = {}
 
         # Архивация attendance
-        archive_file(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
-
+        archive_file_by_date(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
     def start_camera(self):
         if os.path.exists(FACE_MODEL_PATH):
             with open(FACE_MODEL_PATH, "rb") as f:
@@ -44,7 +43,7 @@ class FaceProcessor:
             print("[VIDEO] Модель не найдена, камеру не открываем")
             return False
 
-        # 2) попытка открыть выбранную камеру
+        # попытка открыть выбранную камеру
         idx = self.camera_index
         print(f"[VIDEO] Попытка открыть камеру idx={idx}")
         self.video_capture = cv2.VideoCapture(idx)
@@ -60,6 +59,7 @@ class FaceProcessor:
         if self.video_capture:
             self.video_capture.release()
             self.video_capture = None
+
 
     def get_frame(self):
         if self.video_capture and self.video_capture.isOpened():
@@ -89,11 +89,7 @@ class FaceProcessor:
 
             # если лица не найдены — записываем None
             if not locs:
-                date_str = now.strftime("%Y-%m-%d")
-                time_str = now.strftime("%H:%M:%S")
-                with open(FACE_ATTENDANCE_PATH, "a", encoding="cp1251", newline="") as f:
-                    f.write(f"{date_str},{time_str},None\n")
-                print(f"[FACE] {date_str} {time_str} - None")
+                write_attendance_dated(FACE_ATTENDANCE_PATH, 'None', None, '[FACE]')
             else:
                 # обрабатываем каждое найденное лицо
                 for (top, right, bottom, left), enc in zip(locs, encs):
@@ -117,11 +113,7 @@ class FaceProcessor:
                     )
 
                     # отметка посещаемости (для любого лица)
-                    date_str = now.strftime("%Y-%m-%d")
-                    time_str = now.strftime("%H:%M:%S")
-                    with open(FACE_ATTENDANCE_PATH, "a") as f:
-                        f.write(f"{date_str},{time_str},{name}\n")
-                    print(f"[FACE] {date_str} {time_str} - {name}")
+                    write_attendance_dated(FACE_ATTENDANCE_PATH, name, None, '[FACE]')
                     self.last_attendance[name] = now
 
                     self.last_results.append({
@@ -250,7 +242,7 @@ class FaceProcessor:
 
         # сохр старую
         try:
-            archive_file(FACE_MODEL_PATH, FACE_MODEL_PATH, create_file=True)
+            archive_file(FACE_MODEL_PATH, FACE_MODEL_PATH, create_file=False)
         except Exception as e:
             print(f"[WARNING IMG] Не удалось архивировать старую модель: {e}")
 

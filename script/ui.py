@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         self.move((screen.width() - self.width()) // 2,
                   (screen.height() - self.height()) // 2)
 
-        # Инициализация процессоров
+        # Обработчики
         self.face_processor = FaceProcessor(self.setting_json)
         self.audio_processor = AudioProcessor(self.setting_json)
 
@@ -89,6 +89,8 @@ class MainWindow(QMainWindow):
         self.win_w, self.win_h = self.width(), self.height()
         self.bottom_y = self.win_h - self.btn_h - self.margin
 
+        # Поворот
+        self.rotation = 0  # угол в градусах: 0,90,180,270
         # QLabel для видео
         self.video_label = QLabel(self)
         self.video_label.setGeometry(
@@ -127,6 +129,24 @@ class MainWindow(QMainWindow):
         print("[AUDIO] Доступные устройства ввода:")
         for i, d in enumerate(inputs):
             print(f"  [{i}] index={d['index']} name={d['name']}")
+        print(f"[UI] Started")
+
+    def _apply_rotation(self, frame):
+        if self.rotation == 90:
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        elif self.rotation == 180:
+            return cv2.rotate(frame, cv2.ROTATE_180)
+        elif self.rotation == 270:
+            return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return frame
+
+    def _rotate_left(self):
+        self.rotation = (self.rotation - 90) % 360
+        print(f"[UI] Rotation set to {self.rotation}")
+
+    def _rotate_right(self):
+        self.rotation = (self.rotation + 90) % 360
+        print(f"[UI] Rotation set to {self.rotation}")
 
     def _save_settings(self):
         try:
@@ -140,8 +160,8 @@ class MainWindow(QMainWindow):
         m, b, W, y = self.margin, self.btn_h, self.win_w, self.bottom_y
 
         # Стандартные кнопки
-        self.btn_new1 = QPushButton("Новая1", self)
-        self.btn_new2 = QPushButton("Новая2", self)
+        self.btn_left = QPushButton("⟲", self)
+        self.btn_right = QPushButton("⟳", self)
         self.btn_start = QPushButton("Старт/Стоп", self)
         self.btn_settings = QPushButton("Настройки", self)
 
@@ -181,7 +201,7 @@ class MainWindow(QMainWindow):
         self.btn_microphone = QPushButton(f"Выбрать микрофон\n{mic_display}", self)
 
         # Устанавливаем высоту кнопок
-        for btn in (self.btn_new1, self.btn_new2,
+        for btn in (self.btn_left, self.btn_right,
                     self.btn_camera, self.btn_microphone,
                     self.btn_start, self.btn_settings):
             btn.setFixedHeight(b)
@@ -200,26 +220,26 @@ class MainWindow(QMainWindow):
         ]
 
         # Помещаем кнопки
-        self.btn_new1    .setGeometry(xs[0], y, b, b)
-        self.btn_new2    .setGeometry(xs[1], y, b, b)
-        self.btn_camera  .setGeometry(xs[2], y, c, b)
+        self.btn_left.setGeometry(xs[0], y, b, b)
+        self.btn_right.setGeometry(xs[1], y, b, b)
+        self.btn_camera .setGeometry(xs[2], y, c, b)
         self.btn_microphone.setGeometry(xs[3], y, c, b)
-        self.btn_start   .setGeometry(xs[4], y, b, b)
+        self.btn_start.setGeometry(xs[4], y, b, b)
         self.btn_settings.setGeometry(xs[5], y, b, b)
 
         # Поднимаем над видео
-        for btn in (self.btn_new1, self.btn_new2,
+        for btn in (self.btn_left, self.btn_right,
                     self.btn_camera, self.btn_microphone,
                     self.btn_start, self.btn_settings):
             btn.raise_()
 
         # Привязка событий
-        self.btn_new1     .clicked.connect(lambda: print("Новая1 нажата"))
-        self.btn_new2     .clicked.connect(lambda: print("Новая2 нажата"))
-        self.btn_camera   .clicked.connect(self._select_camera)
+        self.btn_left.clicked.connect(self._rotate_left)
+        self.btn_right.clicked.connect(self._rotate_right)
+        self.btn_camera.clicked.connect(self._select_camera)
         self.btn_microphone.clicked.connect(self._select_microphone)
-        self.btn_start    .clicked.connect(self._toggle_processing)
-        self.btn_settings .clicked.connect(self._open_settings)
+        self.btn_start.clicked.connect(self._toggle_processing)
+        self.btn_settings.clicked.connect(self._open_settings)
 
     def resizeEvent(self, event):
         self.margin = int(min(self.width(), self.height()) * 0.03)
@@ -264,11 +284,41 @@ class MainWindow(QMainWindow):
         )
         if not ok:
             return
+        # Новый и старый индексы
+        new_index = int(choice.split(':')[0])
+        old_index = self.face_processor.camera_index
+        # Останавливаем текущий поток (если был)
+        self.face_processor.stop_camera()
+        # Применяем новые настройки
+        self.setting_json["camera"] = new_index
+        self.face_processor.settings["camera"] = new_index
+        self.face_processor.camera_index = new_index
 
-        sel_index = int(choice.split(':')[0])
-        self.setting_json["camera"] = sel_index
-        self.face_processor.settings["camera"] = sel_index
-        self.face_processor.camera_index = sel_index
+        new_name = choice
+        old_name = next((n for n in names if int(n.split(':')[0]) == old_index), f"{old_index}")
+        # Если видео уже работало — пробуем сразу запустить новую камеру
+        if self.timer.isActive():
+            if not self.face_processor.start_camera():
+                # Откатываем все настройки
+                self.setting_json["camera"] = old_index
+                self.face_processor.settings["camera"] = old_index
+                self.face_processor.camera_index = old_index
+                # Пытаемся вернуть старую камеру
+                if not self.face_processor.start_camera():
+                    QMessageBox.critical(
+                        self, "Критическая ошибка",
+                        f"Не удалось ни открыть новую камеру «{new_name}»"
+                        f"ни вернуть старую «{old_name}»."
+                    )
+                    self._stor_processing()
+                else:
+                    QMessageBox.critical(
+                        self, "Ошибка смены камеры",
+                        f"Не удалось открыть камеру «{new_name}»"
+                        f"вернулась старая «{old_name}»."
+                    )
+                return
+
         self.btn_camera.setText(f"Выбрать камеру\n{choice}")
         print(f"[UI] Выбрана камера: {choice}")
         self._save_settings()
@@ -291,13 +341,53 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
-        sel = int(choice.split(':')[0])
-        self.setting_json["microphone"] = sel
-        self.audio_processor.settings["microphone"] = sel
-        self.audio_processor.mic_index = sel
-        self.btn_microphone.setText(f"Выбрать микрофон\n{choice}")
-        print(f"[UI] Выбран микрофон: {choice}")
+        # Новый и старый индексы
+        new_idx = int(choice.split(':')[0])
+        old_idx = self.audio_processor.mic_index
+        # Останавливаем старый поток (если он был запущен)
+        self.audio_processor.stop_microphone()
+        # Применяем новые настройки
+        self.setting_json["microphone"] = new_idx
+        self.audio_processor.settings["microphone"] = new_idx
+        self.audio_processor.mic_index = new_idx
+        # Получаем человекочитаемые имена
+        new_name = choice
+        old_name = next((n for n in names if int(n.split(':')[0]) == old_idx), f"{old_idx}")
+
+        # Если аудио уже работало — пробуем сразу запустить новый микрофон
+        if getattr(self.audio_processor, "stream", None):
+            if not self.audio_processor.start_microphone():
+                # Откатываем настройки на старые
+                self.setting_json["microphone"] = old_idx
+                self.audio_processor.settings["microphone"] = old_idx
+                self.audio_processor.mic_index = old_idx
+                # Пытаемся вернуть старый микрофон
+                if not self.audio_processor.start_microphone():
+                    QMessageBox.critical(
+                        self,
+                        "Критическая ошибка",
+                        f"Не удалось ни открыть новый микрофон «{new_name}»\n"
+                        f"ни вернуть старый «{old_name}»."
+                    )
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Ошибка смены микрофона",
+                        f"Не удалось открыть микрофон «{new_name}»\n"
+                        f"вернулся старый «{old_name}»."
+                    )
+                return
+
+        self.btn_microphone.setText(f"Выбрать микрофон\n{new_name}")
+        print(f"[UI] Выбран микрофон: {new_name}")
         self._save_settings()
+
+    def _stor_processing(self):
+        self.timer.stop()
+        self.face_processor.stop_camera()
+        self.audio_processor.stop_processing()
+        self.video_label.clear()
+        print("[UI PROC] Остановлены обработка видео и аудио")
 
     def _toggle_processing(self):
         # Переключение таймера
@@ -312,13 +402,9 @@ class MainWindow(QMainWindow):
                 return
 
             self.timer.start(30)
-            print("[UI] Запущены видео и аудио")
+            print("[UI PROC] Запущены обработка видео и аудио")
         else:
-            self.timer.stop()
-            self.face_processor.stop_camera()
-            self.audio_processor.stop_processing()
-            self.video_label.clear()
-            print("[UI] Остановлены видео и аудио")
+            self._stor_processing()
 
     def _open_settings(self):
         self.settings_win = SettingsWindow(self)
@@ -329,6 +415,7 @@ class MainWindow(QMainWindow):
         ret, frame = self.face_processor.get_frame()
         if not ret:
             return
+        frame = self._apply_rotation(frame)
         img, _ = self.face_processor.process_frame(frame)
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
