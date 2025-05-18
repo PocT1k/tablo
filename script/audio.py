@@ -3,6 +3,7 @@ import json
 from vosk import Model, KaldiRecognizer
 from datetime import datetime
 import numpy as np
+from PyQt5.QtWidgets import QMessageBox
 
 from load import dict_get_or_set, archive_file_by_date, write_attendance_dated
 from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
@@ -13,14 +14,13 @@ from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
 class AudioProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_audio", 5)
-        self.recognition_time_add = dict_get_or_set(self.settings, "recognition_time_add", 0.5)
+        self.recognition_time = dict_get_or_set(self.settings, "audio_time_recognition", 5)
+        self.recognition_time_add = dict_get_or_set(self.settings, "audio_time_add_recognition", 0.5)
+        self.mic_index = dict_get_or_set(self.settings, "microphone", 0)
         print(f"[AUDIO] Окно распознования звука = {self.recognition_time}с.+{self.recognition_time_add}с.")
 
         # VOSK
-        self.mic_index = dict_get_or_set(self.settings, "microphone", 0)
         self.samplerate = dict_get_or_set(self.settings, "vosk_sr", 16000)
-        # Архивация VOSK-логов
         archive_file_by_date(VOSK_WORLD_PATH, VOSK_WORLD_OLD_DIR, True)
         # Попытка загрузить Vosk
         self.vosk_ok = False
@@ -31,29 +31,40 @@ class AudioProcessor:
             print("[VOSK] Модель Vosk загружена успешно.")
         except Exception as e:
             print("[VOSK ERROR] Не удалось загрузить Vosk:", e)
+            QMessageBox.warning(None, "Ошибка загрузки",
+                                f'Модуль распознования слов VOSK отключён \nМодель не найдена \n{e}')
 
         # YAMNet
         self.yamnet_sr = dict_get_or_set(self.settings, "yamnet_sr", 16000)
-        self.yamnet_threshold = dict_get_or_set(self.settings, "recognition_index_yamnet", 0.6)
-        self.detectors = dict_get_or_set(self.settings, "target_indices_yamnet", {})
-        # Архивация YAMNet-логов
+        self.yamnet_threshold = dict_get_or_set(self.settings, "yamnet_threshold", 0.6)
+        self.yamnet_indices = dict_get_or_set(self.settings, "yamnet_indices", {})
+        self.yamnet_groups = {
+            group: np.array(indices, dtype=int)
+            for group, indices in self.yamnet_indices.items()
+            if indices  # пропускаем пустые
+        }
         archive_file_by_date(YAMNET_INDICES_PATH, YAMNET_INDICES_OLD_DIR, True)
         # Попытка загрузить YAMNet
         self.yamnet_ok = False
         try:
-            #import tensorflow_hub as hub
+            if not self.yamnet_indices:
+                raise ValueError("yamnet_indices не заданы в настройках")
+            import tensorflow_hub as hub
             self.yamnet_model = hub.load(str(YAMNET_MODEL_PATH))
             class_map = self.yamnet_model.class_map_path().numpy().decode()
             with open(class_map, encoding="utf-8") as f:
                 lines = f.read().splitlines()
             self.class_names = [line.split(",",2)[2] for line in lines[1:]]
             self.yamnet_ok = True
-            print(f"[YAMNet] Модель YAMNet загружена, порог распознования = {self.yamnet_threshold}")
+            print(f"[YAMN] Модель YAMNet загружена, порог распознования = {self.yamnet_threshold}")
         except Exception as e:
-            print("[YAMNet ERROR] Не удалось загрузить YAMNet:", e)
+            print("[YAMN ERROR] Не удалось загрузить YAMNet:", e)
+            QMessageBox.warning(None, "Ошибка загрузки",
+                                f'Модуль распознования звуков YAMNET отключён \nМодель не найдена или ошибка подключения tensorflow_hub \n{e}')
 
         # Флаги запуска циклов
         self.running_recognition = False
+        self.running_recognition_thread = False
 
     def start_microphone(self):
         idx = self.mic_index
@@ -69,8 +80,7 @@ class AudioProcessor:
             return True
         except Exception as e:
             print(f"[AUDIO ERROR] Не удалось открыть микрофон {idx}: {e}")
-            self.last_error = str(e)
-            return False
+            raise ValueError("Не удалось открыть микрофон")
 
     def stop_microphone(self):
         if hasattr(self, 'stream') and self.stream:
@@ -100,25 +110,26 @@ class AudioProcessor:
     def proc_yamnet(self, audio_array, timestamp):
         if not self.yamnet_ok:
             return
+
         wav = np.squeeze(audio_array)
         scores, _, _ = self.yamnet_model(wav)
         mean_scores = np.mean(scores, axis=0)
 
         detected = []
-        for indices in self.detectors.values():
-            if not indices:
-                continue
-            best = max(indices, key=lambda i: mean_scores[i])
-            if mean_scores[best] >= self.yamnet_threshold:
-                detected.append(self.class_names[best])
+
+        for group, idx_arr in self.yamnet_groups.items():
+            group_scores = mean_scores[idx_arr]
+            best_local = idx_arr[np.argmax(group_scores)]
+            if mean_scores[best_local] >= self.yamnet_threshold:
+                detected.append(group)
+
         if not detected:
             detected = ["None"]
-
-        line = ",".join(detected)
-        write_attendance_dated(YAMNET_INDICES_PATH, line, timestamp, '[YAMNet]')
+        write_attendance_dated(YAMNET_INDICES_PATH, detected, timestamp, '[YAMN]')
 
     def proc_audio(self):
         self.running_recognition = True
+        self.running_recognition_while  = True
         tail_len = int(self.samplerate * self.recognition_time_add)
         prev_tail = None
 
@@ -151,3 +162,5 @@ class AudioProcessor:
             if self.yamnet_ok:
                 buf_f32 = buffer.astype('float32') / np.iinfo('int16').max
                 self.proc_yamnet(buf_f32, now)
+
+        self.running_recognition_thread = False

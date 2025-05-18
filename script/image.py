@@ -5,46 +5,83 @@ import numpy as np
 from sklearn.svm import SVC
 import face_recognition
 from datetime import datetime
+from PyQt5.QtWidgets import QMessageBox
+from ultralytics import YOLO
 
 from load import dict_get_or_set, archive_file, archive_file_by_date, write_attendance_dated
-from conf import (FACE_MODEL_PATH, # модели
-    FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, # файлы логирования
+from conf import (FACE_MODEL_PATH, YOLO_MODEL_PATH, # модели
+    FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, YOLO_CLASSEC_PATH, YOLO_CLASSEC_OLD_DIR, # файлы логирования
     DATASET_CONVERTED_DIR, DATASET_RAW_DIR) # датасеты
-
 
 class ImageProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
         # Интервал распознавания (секунды) и индекс камеры
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_image", 2)
+        self.recognition_time = dict_get_or_set(self.settings, "image_time_recognition", 2)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
-        self.face_recognition_index = dict_get_or_set(self.settings, "recognition_index_face", 0.6)
-        self.face_scale_index = dict_get_or_set(self.settings, "face_scale_index ", 0.5)
-        self.inv_face_scale_index = 1.0 / self.face_scale_index # обратный коэффициент
         print(f"[VIDEO] Окно распознования изображения = {self.recognition_time}с.")
-        print(f"[FACE] Порог распознования лиц = {self.face_recognition_index}")
-        print(f"[FACE] Коэфециэнт масштабирования изображения для распознавания лиц = {self.face_scale_index}")
-
         self.video_capture = None
-        # Для кэширования результатов между распознаваниями
-        self.last_detection_time = None
-        self.last_results = []
-        # Для отметки посещаемости
-        self.last_attendance = {}
-        self.last_things_results = []
-        # Архивация attendance
+
+        # Face
+        self.load_face()
         archive_file_by_date(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
 
-    def start_camera(self):
-        if os.path.exists(FACE_MODEL_PATH):
+        # YOLOv5
+        self.yolo_threshold = dict_get_or_set(self.settings, "yolo_threshold", 0.7)
+        self.yolo_classes = dict_get_or_set(self.settings, "yolo_classes", {})
+        self.yolo_groups = {
+            group: np.array(indices, dtype=int)
+            for group, indices in self.yolo_classes.items()
+            if indices  # пропускаем пустые списки
+        }
+        archive_file_by_date(YOLO_CLASSEC_PATH, YOLO_CLASSEC_OLD_DIR, True)
+        self.yolo_ok = False
+        try:
+            if os.path.isfile(YOLO_MODEL_PATH):
+                if not self.yolo_classes:
+                    raise ValueError("yolo_classes не заданы в настройках")
+                self.yolo_model = YOLO(YOLO_MODEL_PATH)
+                self.yolo_ok = True
+                print("[YOLO] Модель YOLO загружена успешно.")
+            else:
+                print("[YOLO ERROR] Модель распознования объектов не найдена")
+                raise ValueError("Модель распознования объектов не найдена")
+        except Exception as e:
+            print("[YOLO ERROR] Не удалось загрузить YOLO-модель:", e)
+            QMessageBox.warning(None, "Ошибка загрузки",
+                                f'Не удалось загрузить YOLO: {e}')
+
+        # Для кэширования результатов между распознаваниями
+        self.last_detection_time = None
+        self.faces_results = []
+        self.items_results = []
+
+    def load_face(self):
+        self.face_threshold = dict_get_or_set(self.settings, "face_threshold", 0.6)
+        self.face_scale = dict_get_or_set(self.settings, "face_scale", 0.5)
+        self.inv_face_scale_index = 1.0 / self.face_scale  # обратный коэффициент
+        print(f"[FACE] Порог распознования лиц = {self.face_threshold}")
+        print(f"[FACE] Коэфециэнт масштабирования изображения для распознавания лиц = {self.face_scale} ({self.inv_face_scale_index})")
+
+        self.face_ok = False
+        try:
             with open(FACE_MODEL_PATH, "rb") as f:
                 self.face_model = pickle.load(f)
-        else:
-            self.face_model = None
+            self.face_ok = True
+            print("[FACE] Модель Face загружена успешно.")
+        except Exception as e:
+            print("[FACE ERROR] Не удалось загрузить Face:", e)
+            QMessageBox.warning(None, "Ошибка загрузки",
+                f'Не удалось загрузить Face: {e}')
 
-        if self.face_model is None:
-            print("[VIDEO] Модель не найдена, камеру не открываем")
-            return False
+        if not self.face_ok:
+            print("[FACE] Модель распознования лиц не найдена")
+            QMessageBox.warning(None, "Ошибка загрузки",
+                                'Модуль распознования лиц FACE отключён\nМодель не найдена \nВы можетете новоую модель в "Настройки" - "Начать переобучение распознования лиц"')
+
+
+    def start_camera(self):
+        self.load_face()
 
         # попытка открыть выбранную камеру
         idx = self.camera_index
@@ -52,9 +89,9 @@ class ImageProcessor:
         self.video_capture = cv2.VideoCapture(idx)
         if not self.video_capture.isOpened():
             print(f"[VIDEO ERROR] Не удалось открыть камеру {idx}")
-            return False
-
+            raise ValueError("Не удалось открыть камеру")
         print(f"[VIDEO] Камера {idx} успешно открыта")
+
         return True
 
     def stop_camera(self):
@@ -62,12 +99,6 @@ class ImageProcessor:
         if self.video_capture:
             self.video_capture.release()
             self.video_capture = None
-
-
-    def get_frame(self):
-        if self.video_capture and self.video_capture.isOpened():
-            return self.video_capture.read()
-        return False, None
 
     def _convert_image(self):
         os.makedirs(DATASET_CONVERTED_DIR, exist_ok=True)
@@ -189,109 +220,125 @@ class ImageProcessor:
         self.face_model = clf
         return True
 
+    def get_frame(self):
+        if self.video_capture and self.video_capture.isOpened():
+            return self.video_capture.read()
+        return False, None
+
     def proc_face(self, frame):
         """
         return список словарей с ключами:
             'name' (строка),
-            'confidence' (float),
+            'threshold' (float),
             'location' (top, right, bottom, left).
         Не меняет исходный frame!
         """
+        if not self.face_ok:
+            return
+        faces = []
+
+        # Подготовка для детекции
+        small = cv2.resize(frame, (0, 0), fx=self.face_scale, fy=self.face_scale)
+        rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+
+        locs = face_recognition.face_locations(rgb_small)
+        encs = face_recognition.face_encodings(rgb_small, locs)
+
+        # Собираем все имена в этом кадре
+        names = []
+        for (top, right, bottom, left), enc in zip(locs, encs):
+            probs = self.face_model.predict_proba([enc])[0]
+            idx = np.argmax(probs)
+            name = self.face_model.classes_[idx]
+            conf = probs[idx]
+            if conf < self.face_threshold:
+                name = "Unknown"
+            names.append(name)
+
+            # Приводим координаты к оригинальному размеру
+            top = int(top * self.inv_face_scale_index)
+            right = int(right * self.inv_face_scale_index)
+            bottom = int(bottom * self.inv_face_scale_index)
+            left = int(left * self.inv_face_scale_index)
+
+            faces.append({
+                "name": name,
+                "threshold": float(conf),
+                "location": (top, right, bottom, left)
+            })
+
+        write_attendance_dated(FACE_ATTENDANCE_PATH, names, None, "[FACE]")
+        return faces
+
+    def proc_yolo(self, frame):
+        """
+        return список словарей вида:
+            'label' (строка),
+            'threshold' (float),
+            'location' (top, right, bottom, left).
+        Не меняет исходный frame!
+        """
+        if not self.yolo_ok:
+            return
+        items = []
+        results = self.yolo_model(frame, verbose=False)[0]
+
+        # results.boxes.cls — индексы классов
+        # results.boxes.conf — confidence
+        # results.boxes.xyxy — [x1, y1, x2, y2]
+        for cls, conf, box in zip(results.boxes.cls, results.boxes.conf, results.boxes.xyxy):
+            idx = int(cls)
+            if conf < self.yolo_threshold:
+                continue
+            # ищем все группы, в которых встречается этот idx
+            for group, idx_arr in self.yolo_groups.items():
+                if idx in idx_arr:
+                    x1, y1, x2, y2 = map(int, box)
+                    items.append({
+                        "label": group,
+                        "threshold": float(conf),
+                        "location": (y1, x2, y2, x1)
+                    })
+
+        groups = sorted({item["label"] for item in items})
+        write_attendance_dated(YOLO_CLASSEC_PATH, groups, None, "[YOLO]" )
+
+        return items
+
+    def proc_image(self, frame):
+        # Проверяем, нужно ли делать детекцию в этом кадре
         now = datetime.now()
         do_detect = (
                 self.last_detection_time is None or
                 (now - self.last_detection_time).total_seconds() >= self.recognition_time
         )
-        results = []
-
         if do_detect:
             self.last_detection_time = now
-            self.last_results = []
-
-            # Подготовка для детекции
-            small = cv2.resize(frame, (0, 0), fx=self.face_scale_index, fy=self.face_scale_index)
-            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-
-            locs = face_recognition.face_locations(rgb_small)
-            encs = face_recognition.face_encodings(rgb_small, locs)
-
-            # Собираем все имена в этом кадре
-            names = []
-            for (top, right, bottom, left), enc in zip(locs, encs):
-                probs = self.face_model.predict_proba([enc])[0]
-                idx = np.argmax(probs)
-                name = self.face_model.classes_[idx]
-                conf = probs[idx]
-                if conf < self.face_recognition_index:
-                    name = "Unknown"
-                names.append(name)
-
-                # Приводим координаты к оригинальному размеру
-                top = int(top * self.inv_face_scale_index)
-                right = int(right * self.inv_face_scale_index)
-                bottom = int(bottom * self.inv_face_scale_index)
-                left = int(left * self.inv_face_scale_index)
-
-                results.append({
-                    "name": name,
-                    "confidence": float(conf),
-                    "location": (top, right, bottom, left)
-                })
-
-            # Логируем одну строку: все имена или "None"
-            write_attendance_dated(FACE_ATTENDANCE_PATH, names, None, "[FACE]")
-
-            # Сохраняем для последующего перерисовывания
-            self.last_results = results.copy()
-        else:
-            # Если не детектируем в этой итерации — берём старые
-            results = self.last_results.copy()
-
-        return results
-
-    def proc_items(self, frame):
-        """
-        return список словарей вида:
-            'label' (строка),
-            'confidence' (float),
-            'location' (top, right, bottom, left).
-        Не меняет исходный frame!
-        """
-        results = []
-        # TODO: здесь ваша логика распознавания предметов,
-        # например, вызов внешней нейросети.
-        # Пример добавления результата:
-        # results.append({"label":"object","confidence":0.75,"location":(t,r,b,l)})
-
-        self.last_things_results = results.copy()
-        return results
-
-    def proc_image(self, frame):
-        # детект лиц
-        face_results = self.proc_face(frame)
-        # детект предметов
-        items_results = self.proc_items(frame)
+            # детект лиц
+            self.faces_results = self.proc_face(frame)
+            # детект предметов
+            self.items_results = self.proc_yolo(frame)
 
         frame_copy = frame.copy()
-        # рисуем лица (зелёная)
-        for res in face_results:
-            t, r, b, l = res["location"]
-            cv2.rectangle(frame_copy, (l, t), (r, b), (0, 255, 0), 2)
-            cv2.putText(
-                frame_copy,
-                f"{res['name']} ({res['confidence'] * 100:.1f}%)",
-                (l, t - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
-            )
         # рисуем предметы (синяя)
-        for res in items_results:
+        for res in self.items_results:
             t, r, b, l = res["location"]
             cv2.rectangle(frame_copy, (l, t), (r, b), (255, 0, 0), 2)
             cv2.putText(
                 frame_copy,
-                f"{res['label']} ({res['confidence'] * 100:.1f}%)",
+                f"{res['label']} ({res['threshold'] * 100:.1f}%)",
                 (l, t - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), 2
             )
+        # рисуем лица (зелёная)
+        for res in self.faces_results:
+            t, r, b, l = res["location"]
+            cv2.rectangle(frame_copy, (l, t), (r, b), (0, 255, 0), 2)
+            cv2.putText(
+                frame_copy,
+                f"{res['name']} ({res['threshold'] * 100:.1f}%)",
+                (l, t - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
+            )
 
-        return frame_copy, {"faces": face_results, "items": items_results}
+        return frame_copy, {"faces": self.faces_results, "items": self.items_results}

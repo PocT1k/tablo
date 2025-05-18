@@ -71,7 +71,7 @@ class MainWindow(QMainWindow):
 
         # Заголовок и геометрия окна
         win_conf = dict_get_or_set(self.setting_json, "Window", {})
-        self.setWindowTitle(dict_get_or_set(win_conf, "name", "Supervisor"))
+        self.setWindowTitle(dict_get_or_set(win_conf, "name", "WathGarg AI"))
         screen = QApplication.primaryScreen().availableGeometry()
         h = dict_get_or_set(win_conf, "h", 0.6)
         w = dict_get_or_set(win_conf, "w", 0.4)
@@ -393,13 +393,20 @@ class MainWindow(QMainWindow):
         # Переключение таймера
         if not self.timer.isActive():
             # Стартуем видео
-            if not self.image_processor.start_camera():
-                QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модель или открыть камеру.")
+            try:
+                self.image_processor.start_camera()
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка камеры", str(e))
                 return
             # Стартуем аудио
-            if not self.audio_processor.start_microphone():
-                QMessageBox.critical(self, "Ошибка", "Не удалось открыть микрофон.")
+            try:
+                self.audio_processor.start_microphone()
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка микрофона", str(e))
                 return
+            self.audio_processor.running_recognition = True
+            if not self.audio_processor.running_recognition_thread:
+                Thread(target=self.audio_processor.proc_audio, daemon=True).start()
 
             self.timer.start(30)
             print("[UI PROC] Запущены обработка видео и аудио")
@@ -427,10 +434,3 @@ class MainWindow(QMainWindow):
             self.video_label.size(), Qt.KeepAspectRatio
         )
         self.video_label.setPixmap(pix)
-
-        # Audio-обработчик
-        if not getattr(self, "_audio_thread_started", False):
-            self.audio_processor.running_recognition_world = True
-            self.audio_processor.running_classification_indices = True
-            Thread(target=self.audio_processor.proc_audio, daemon=True).start()
-            self._audio_thread_started = True
