@@ -115,9 +115,8 @@ class SettingsWindow(QDialog):
         buttons.rejected.connect(dlg.reject)
 
         if dlg.exec_() == QDialog.Accepted:
-            # здесь self.stat_period = (date, time_start, time_end)
+            # (date, time_start, time_end)
             print("Период:", self.stat_period)
-            # дальше можно использовать self.stat_period в родителе
 
 class MainWindow(QMainWindow):
     def __init__(self):
