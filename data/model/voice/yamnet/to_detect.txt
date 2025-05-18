@@ -1,0 +1,34 @@
+0,/m/09x0r,Speech
+1,/m/0ytgt,"Child speech, kid speaking"
+2,/m/01h8n0,Conversation
+3,/m/02qldy,"Narration, monologue"
+4,/m/0261r1,Babbling
+5,/m/0brhx,Speech synthesizer
+6,/m/07p6fty,Shout
+7,/m/07q4ntr,Bellow
+8,/m/07rwj3x,Whoop
+9,/m/07sr1lc,Yell
+10,/t/dd00135,Children shouting
+11,/m/03qc9zr,Screaming
+12,/m/02rtxlg,Whispering
+63,/m/07rkbfh,Chatter
+65,/m/07qfr4h,"Hubbub, speech noise, speech babble"
+
+378,/m/0316dw,Typing
+379,/m/0c2wf,Typewriter
+380,/m/01m2v,Computer keyboard
+381,/m/081rb,Writing
+409,/m/01m4t,Printer
+
+24,/m/015lz1,Singing
+132,/m/04rlf,Music
+383,/m/07cx4,Telephone
+384,/m/07pp8cl,Telephone bell ringing
+385,/m/01hnzm,Ringtone
+386,/m/02c8p,"Telephone dialing, DTMF"
+387,/m/015jpf,Dial tone
+388,/m/01z47d,Busy signal
+389,/m/046dlr,Alarm clock
+507,/m/096m7z,Noise
+518,/m/07c52,Television
+519,/m/06bz3,Radio
