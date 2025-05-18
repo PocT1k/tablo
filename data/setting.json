@@ -1,17 +1,17 @@
 {
     "Window": {
         "name": "Supervisor",
-        "h": 0.5,
+        "h": 0.6,
         "w": 0.4
     },
     "camera": 0,
-    "recognition_time_face": 3,
-    "face_recognition_index": 0.5,
+    "recognition_time_image": 2,
+    "recognition_index_face": 0.6,
     "microphone": 1,
-    "recognition_time": 3,
+    "recognition_time_audio": 3,
     "recognition_time_add": 0.5,
     "vosk_sr": 16000,
-    "indices_recognition_index": 0.6,
+    "recognition_index_yamnet": 0.6,
     "yamnet_sr": 16000,
     "target_indices_yamnet": {
         "speech": [

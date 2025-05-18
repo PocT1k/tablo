@@ -9,7 +9,7 @@ import json
 import sounddevice as sd
 from threading import Thread
 
-from face import FaceProcessor
+from image import ImageProcessor
 from audio import AudioProcessor
 from load import check_exist, dict_get_or_set
 from conf import SETTING_JSON_PATH
@@ -53,7 +53,7 @@ class SettingsWindow(QDialog):
 
     def on_retrain_clicked(self):
         try:
-            self.parent.face_processor.retrain_model()
+            self.parent.image_processor.retrain_model()
         except Exception as e:
             QMessageBox.critical(self, "Ошибка переобучения", str(e))
         else:
@@ -73,14 +73,14 @@ class MainWindow(QMainWindow):
         win_conf = dict_get_or_set(self.setting_json, "Window", {})
         self.setWindowTitle(dict_get_or_set(win_conf, "name", "Supervisor"))
         screen = QApplication.primaryScreen().availableGeometry()
-        h = dict_get_or_set(win_conf, "h", 0.5)
+        h = dict_get_or_set(win_conf, "h", 0.6)
         w = dict_get_or_set(win_conf, "w", 0.4)
         self.resize(int(screen.width() * w), int(screen.height() * h))
         self.move((screen.width() - self.width()) // 2,
                   (screen.height() - self.height()) // 2)
 
         # Обработчики
-        self.face_processor = FaceProcessor(self.setting_json)
+        self.image_processor = ImageProcessor(self.setting_json)
         self.audio_processor = AudioProcessor(self.setting_json)
 
         # Вычисление геометрии
@@ -286,25 +286,25 @@ class MainWindow(QMainWindow):
             return
         # Новый и старый индексы
         new_index = int(choice.split(':')[0])
-        old_index = self.face_processor.camera_index
+        old_index = self.image_processor.camera_index
         # Останавливаем текущий поток (если был)
-        self.face_processor.stop_camera()
+        self.image_processor.stop_camera()
         # Применяем новые настройки
         self.setting_json["camera"] = new_index
-        self.face_processor.settings["camera"] = new_index
-        self.face_processor.camera_index = new_index
+        self.image_processor.settings["camera"] = new_index
+        self.image_processor.camera_index = new_index
 
         new_name = choice
         old_name = next((n for n in names if int(n.split(':')[0]) == old_index), f"{old_index}")
         # Если видео уже работало — пробуем сразу запустить новую камеру
         if self.timer.isActive():
-            if not self.face_processor.start_camera():
+            if not self.image_processor.start_camera():
                 # Откатываем все настройки
                 self.setting_json["camera"] = old_index
-                self.face_processor.settings["camera"] = old_index
-                self.face_processor.camera_index = old_index
+                self.image_processor.settings["camera"] = old_index
+                self.image_processor.camera_index = old_index
                 # Пытаемся вернуть старую камеру
-                if not self.face_processor.start_camera():
+                if not self.image_processor.start_camera():
                     QMessageBox.critical(
                         self, "Критическая ошибка",
                         f"Не удалось ни открыть новую камеру «{new_name}»"
@@ -384,7 +384,7 @@ class MainWindow(QMainWindow):
 
     def _stor_processing(self):
         self.timer.stop()
-        self.face_processor.stop_camera()
+        self.image_processor.stop_camera()
         self.audio_processor.stop_processing()
         self.video_label.clear()
         print("[UI PROC] Остановлены обработка видео и аудио")
@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
         # Переключение таймера
         if not self.timer.isActive():
             # Стартуем видео
-            if not self.face_processor.start_camera():
+            if not self.image_processor.start_camera():
                 QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модель или открыть камеру.")
                 return
             # Стартуем аудио
@@ -412,11 +412,11 @@ class MainWindow(QMainWindow):
 
     def _update_frame(self):
         # Видеопоток
-        ret, frame = self.face_processor.get_frame()
+        ret, frame = self.image_processor.get_frame()
         if not ret:
             return
         frame = self._apply_rotation(frame)
-        img, _ = self.face_processor.process_frame(frame)
+        img, _ = self.image_processor.proc_image(frame)
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qt = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
@@ -429,5 +429,5 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_audio_thread_started", False):
             self.audio_processor.running_recognition_world = True
             self.audio_processor.running_classification_indices = True
-            Thread(target=self.audio_processor.recognize_audio, daemon=True).start()
+            Thread(target=self.audio_processor.proc_audio, daemon=True).start()
             self._audio_thread_started = True

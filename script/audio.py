@@ -13,9 +13,9 @@ from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
 class AudioProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time", 5)
+        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_audio", 5)
         self.recognition_time_add = dict_get_or_set(self.settings, "recognition_time_add", 0.5)
-        print(f"[AUDIO] Окно = {self.recognition_time}с.+{self.recognition_time_add}с.")
+        print(f"[AUDIO] Окно распознования звука = {self.recognition_time}с.+{self.recognition_time_add}с.")
 
         # VOSK
         self.mic_index = dict_get_or_set(self.settings, "microphone", 0)
@@ -34,7 +34,7 @@ class AudioProcessor:
 
         # YAMNet
         self.yamnet_sr = dict_get_or_set(self.settings, "yamnet_sr", 16000)
-        self.yamnet_threshold = dict_get_or_set(self.settings, "indices_recognition_index", 0.6)
+        self.yamnet_threshold = dict_get_or_set(self.settings, "recognition_index_yamnet", 0.6)
         self.detectors = dict_get_or_set(self.settings, "target_indices_yamnet", {})
         # Архивация YAMNet-логов
         archive_file_by_date(YAMNET_INDICES_PATH, YAMNET_INDICES_OLD_DIR, True)
@@ -48,7 +48,7 @@ class AudioProcessor:
                 lines = f.read().splitlines()
             self.class_names = [line.split(",",2)[2] for line in lines[1:]]
             self.yamnet_ok = True
-            print(f"[YAMNet] Модель загружена, порог={self.yamnet_threshold}")
+            print(f"[YAMNet] Модель YAMNet загружена, порог распознования = {self.yamnet_threshold}")
         except Exception as e:
             print("[YAMNet ERROR] Не удалось загрузить YAMNet:", e)
 
@@ -82,7 +82,7 @@ class AudioProcessor:
         self.running_recognition = False
         self.stop_microphone()
 
-    def recognize_vosk(self, audio_bytes, timestamp):
+    def proc_vosk(self, audio_bytes, timestamp):
         if not self.vosk_ok:
             return
 
@@ -97,7 +97,7 @@ class AudioProcessor:
         # логирование
         write_attendance_dated(VOSK_WORLD_PATH, text, timestamp, '[VOSK]')
 
-    def recognize_yamnet(self, audio_array, timestamp):
+    def proc_yamnet(self, audio_array, timestamp):
         if not self.yamnet_ok:
             return
         wav = np.squeeze(audio_array)
@@ -117,7 +117,7 @@ class AudioProcessor:
         line = ",".join(detected)
         write_attendance_dated(YAMNET_INDICES_PATH, line, timestamp, '[YAMNet]')
 
-    def recognize_audio(self):
+    def proc_audio(self):
         self.running_recognition = True
         tail_len = int(self.samplerate * self.recognition_time_add)
         prev_tail = None
@@ -145,9 +145,9 @@ class AudioProcessor:
             # Vosk
             if self.vosk_ok:
                 audio_bytes = buffer.tobytes()
-                self.recognize_vosk(audio_bytes, now)
+                self.proc_vosk(audio_bytes, now)
 
             # YAMNet
             if self.yamnet_ok:
                 buf_f32 = buffer.astype('float32') / np.iinfo('int16').max
-                self.recognize_yamnet(buf_f32, now)
+                self.proc_yamnet(buf_f32, now)

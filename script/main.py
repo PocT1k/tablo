@@ -6,10 +6,6 @@ from ui import MainWindow
 
 
 def main():
-    #
-    # from load import write_attendance_dated
-    # write_attendance_dated("C:\Users\novik\PycharmProjects\tablo\data\log\123.txt")
-
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

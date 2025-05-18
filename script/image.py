@@ -1,4 +1,3 @@
-# face.py
 import os
 import pickle
 import cv2
@@ -13,25 +12,25 @@ from conf import (FACE_MODEL_PATH, # модели
     DATASET_CONVERTED_DIR, DATASET_RAW_DIR) # датасеты
 
 
-class FaceProcessor:
+class ImageProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
-
         # Интервал распознавания (секунды) и индекс камеры
-        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_face", 2)
+        self.recognition_time = dict_get_or_set(self.settings, "recognition_time_image", 2)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
-        self.face_recognition_index = dict_get_or_set(self.settings, "face_recognition_index", 0.6)
+        self.face_recognition_index = dict_get_or_set(self.settings, "recognition_index_face", 0.6)
+        print(f"[VIDEO] Окно распознования изображения = {self.recognition_time}с.")
+        print(f"[FACE] Порог распознования = {self.face_recognition_index}")
 
         self.video_capture = None
         # Для кэширования результатов между распознаваниями
         self.last_detection_time = None
         self.last_results = []
-
         # Для отметки посещаемости
         self.last_attendance = {}
-
         # Архивация attendance
         archive_file_by_date(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
+
     def start_camera(self):
         if os.path.exists(FACE_MODEL_PATH):
             with open(FACE_MODEL_PATH, "rb") as f:
@@ -66,7 +65,7 @@ class FaceProcessor:
             return self.video_capture.read()
         return False, None
 
-    def process_frame(self, frame):
+    def proc_image(self, frame):
         now = datetime.now()
         do_detect = (
                 self.last_detection_time is None or
