@@ -1,20 +1,64 @@
 {
     "Window": {
-        "name": "Supervisor",
+        "name": "WathGarg AI",
         "h": 0.6,
         "w": 0.4
     },
     "camera": 0,
-    "recognition_time_image": 2,
-    "recognition_index_face": 0.6,
-    "face_scale_index": 0.7,
+    "image_time_recognition": 2,
+    "face_threshold": 0.6,
+    "face_scale": 0.7,
+    "yolo_threshold": 0.7,
+    "yolo_classes": {
+        "people": [
+            0
+        ],
+        "food": [
+            39,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55
+        ],
+        "technic": [
+            62,
+            63,
+            64,
+            65,
+            66
+        ],
+        "telephone": [
+            67
+        ],
+        "book": [
+            73
+        ]
+    },
+    "yolo_classes_weights": {
+        "people": 1.2,
+        "food": 0.8,
+        "technic": 1.1,
+        "telephone": 0.7,
+        "book": 1.0
+    },
     "microphone": 1,
-    "recognition_time_audio": 3,
-    "recognition_time_add": 0.5,
+    "audio_time_recognition": 3,
+    "audio_time_add_recognition": 0.5,
     "vosk_sr": 16000,
-    "recognition_index_yamnet": 0.6,
+    "yamnet_threshold": 0.6,
     "yamnet_sr": 16000,
-    "target_indices_yamnet": {
+    "yamnet_indices": {
         "speech": [
             0,
             1,
@@ -54,7 +98,7 @@
             519
         ]
     },
-    "weights_indices_yamnet": {
+    "yamnet_indices_weights": {
         "speech": 0.9,
         "typing": 1.2,
         "media": 0.7
