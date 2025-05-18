@@ -416,8 +416,11 @@ class MainWindow(QMainWindow):
         if not ret:
             return
         frame = self._apply_rotation(frame)
-        img, _ = self.image_processor.proc_image(frame)
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # Обработка изображения (возвращает кадр и словарь с результатами)
+        processed_frame, detect_results = self.image_processor.proc_image(frame)
+        # Конвертация для Qt
+        rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qt = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
         pix = QPixmap.fromImage(qt).scaled(

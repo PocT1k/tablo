@@ -19,8 +19,11 @@ class ImageProcessor:
         self.recognition_time = dict_get_or_set(self.settings, "recognition_time_image", 2)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
         self.face_recognition_index = dict_get_or_set(self.settings, "recognition_index_face", 0.6)
+        self.face_scale_index = dict_get_or_set(self.settings, "face_scale_index ", 0.5)
+        self.inv_face_scale_index = 1.0 / self.face_scale_index # обратный коэффициент
         print(f"[VIDEO] Окно распознования изображения = {self.recognition_time}с.")
-        print(f"[FACE] Порог распознования = {self.face_recognition_index}")
+        print(f"[FACE] Порог распознования лиц = {self.face_recognition_index}")
+        print(f"[FACE] Коэфециэнт масштабирования изображения для распознавания лиц = {self.face_scale_index}")
 
         self.video_capture = None
         # Для кэширования результатов между распознаваниями
@@ -28,6 +31,7 @@ class ImageProcessor:
         self.last_results = []
         # Для отметки посещаемости
         self.last_attendance = {}
+        self.last_things_results = []
         # Архивация attendance
         archive_file_by_date(FACE_ATTENDANCE_PATH, FACE_ATTENDANCE_OLD_DIR, True)
 
@@ -64,77 +68,6 @@ class ImageProcessor:
         if self.video_capture and self.video_capture.isOpened():
             return self.video_capture.read()
         return False, None
-
-    def proc_image(self, frame):
-        now = datetime.now()
-        do_detect = (
-                self.last_detection_time is None or
-                (now - self.last_detection_time).total_seconds() >= self.recognition_time
-        )
-
-        processed = frame.copy()
-
-        if do_detect:
-            # обновляем время и очищаем прошлые результаты
-            self.last_detection_time = now
-            self.last_results = []
-
-            # масштабируем для детекции
-            small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-
-            locs = face_recognition.face_locations(rgb_small)
-            encs = face_recognition.face_encodings(rgb_small, locs)
-
-            # если лица не найдены — записываем None
-            if not locs:
-                write_attendance_dated(FACE_ATTENDANCE_PATH, 'None', None, '[FACE]')
-            else:
-                # обрабатываем каждое найденное лицо
-                for (top, right, bottom, left), enc in zip(locs, encs):
-                    probs = self.face_model.predict_proba([enc])[0]
-                    idx = np.argmax(probs)
-                    name = self.face_model.classes_[idx]
-                    conf = probs[idx]
-                    if conf < self.face_recognition_index:
-                        name = "Unknown"
-
-                    # масштаб обратно
-                    top *= 2; right *= 2; bottom *= 2; left *= 2
-
-                    # рисуем рамку и подпись
-                    cv2.rectangle(processed, (left, top), (right, bottom), (0, 255, 0), 2)
-                    cv2.putText(
-                        processed,
-                        f"{name} ({conf * 100:.1f}%)",
-                        (left, top - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
-                    )
-
-                    # отметка посещаемости (для любого лица)
-                    write_attendance_dated(FACE_ATTENDANCE_PATH, name, None, '[FACE]')
-                    self.last_attendance[name] = now
-
-                    self.last_results.append({
-                        "name": name,
-                        "confidence": float(conf),
-                        "location": (top, right, bottom, left)
-                    })
-        else:
-            # просто рисуем прошлые рамки
-            for res in self.last_results:
-                top, right, bottom, left = res["location"]
-                name = res["name"]
-                conf = res["confidence"]
-                cv2.rectangle(processed, (left, top), (right, bottom), (0, 255, 0), 2)
-                cv2.putText(
-                    processed,
-                    f"{name} ({conf * 100:.1f}%)",
-                    (left, top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
-                )
-
-        return processed, self.last_results
 
     def _convert_image(self):
         os.makedirs(DATASET_CONVERTED_DIR, exist_ok=True)
@@ -255,3 +188,110 @@ class ImageProcessor:
         # обновляем работающий экземпляр
         self.face_model = clf
         return True
+
+    def proc_face(self, frame):
+        """
+        return список словарей с ключами:
+            'name' (строка),
+            'confidence' (float),
+            'location' (top, right, bottom, left).
+        Не меняет исходный frame!
+        """
+        now = datetime.now()
+        do_detect = (
+                self.last_detection_time is None or
+                (now - self.last_detection_time).total_seconds() >= self.recognition_time
+        )
+        results = []
+
+        if do_detect:
+            self.last_detection_time = now
+            self.last_results = []
+
+            # Подготовка для детекции
+            small = cv2.resize(frame, (0, 0), fx=self.face_scale_index, fy=self.face_scale_index)
+            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+
+            locs = face_recognition.face_locations(rgb_small)
+            encs = face_recognition.face_encodings(rgb_small, locs)
+
+            # Собираем все имена в этом кадре
+            names = []
+            for (top, right, bottom, left), enc in zip(locs, encs):
+                probs = self.face_model.predict_proba([enc])[0]
+                idx = np.argmax(probs)
+                name = self.face_model.classes_[idx]
+                conf = probs[idx]
+                if conf < self.face_recognition_index:
+                    name = "Unknown"
+                names.append(name)
+
+                # Приводим координаты к оригинальному размеру
+                top = int(top * self.inv_face_scale_index)
+                right = int(right * self.inv_face_scale_index)
+                bottom = int(bottom * self.inv_face_scale_index)
+                left = int(left * self.inv_face_scale_index)
+
+                results.append({
+                    "name": name,
+                    "confidence": float(conf),
+                    "location": (top, right, bottom, left)
+                })
+
+            # Логируем одну строку: все имена или "None"
+            write_attendance_dated(FACE_ATTENDANCE_PATH, names, None, "[FACE]")
+
+            # Сохраняем для последующего перерисовывания
+            self.last_results = results.copy()
+        else:
+            # Если не детектируем в этой итерации — берём старые
+            results = self.last_results.copy()
+
+        return results
+
+    def proc_items(self, frame):
+        """
+        return список словарей вида:
+            'label' (строка),
+            'confidence' (float),
+            'location' (top, right, bottom, left).
+        Не меняет исходный frame!
+        """
+        results = []
+        # TODO: здесь ваша логика распознавания предметов,
+        # например, вызов внешней нейросети.
+        # Пример добавления результата:
+        # results.append({"label":"object","confidence":0.75,"location":(t,r,b,l)})
+
+        self.last_things_results = results.copy()
+        return results
+
+    def proc_image(self, frame):
+        # детект лиц
+        face_results = self.proc_face(frame)
+        # детект предметов
+        items_results = self.proc_items(frame)
+
+        frame_copy = frame.copy()
+        # рисуем лица (зелёная)
+        for res in face_results:
+            t, r, b, l = res["location"]
+            cv2.rectangle(frame_copy, (l, t), (r, b), (0, 255, 0), 2)
+            cv2.putText(
+                frame_copy,
+                f"{res['name']} ({res['confidence'] * 100:.1f}%)",
+                (l, t - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
+            )
+        # рисуем предметы (синяя)
+        for res in items_results:
+            t, r, b, l = res["location"]
+            cv2.rectangle(frame_copy, (l, t), (r, b), (255, 0, 0), 2)
+            cv2.putText(
+                frame_copy,
+                f"{res['label']} ({res['confidence'] * 100:.1f}%)",
+                (l, t - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), 2
+            )
+
+        return frame_copy, {"faces": face_results, "items": items_results}

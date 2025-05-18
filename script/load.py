@@ -80,7 +80,7 @@ def archive_file_by_date(file_path: str, archive_dir: str, create_file: bool = F
             except Exception as e:
                 print(f"[DATA ARCHIVE ERROR] Не удалось создать {today_path}: {e}")
 
-def write_attendance_dated(file_path: str, text: str, timestamp = None, who_logging: str = '[]'):
+def write_attendance_dated(file_path: str, text, timestamp = None, who_logging: str = '[]'):
     now = datetime.now()
     if not timestamp:
         timestamp = datetime.now().strftime("%Y-%m-%d,%H:%M:%S")
@@ -94,7 +94,11 @@ def write_attendance_dated(file_path: str, text: str, timestamp = None, who_logg
 
     if not text:
         text = 'None'
-    text = text.replace(",", " ")
+    elif isinstance(text, (list, tuple)): # Соединяем элементы списка запятыми, если массив
+        text = ",".join(str(item) for item in text)
+    else: # Экранируем запятые в строке, если строка
+        text = text.replace(",", " ")
+
     with open(dated_path, "a", encoding="cp1251") as f:
         f.write(f"{timestamp},{text}\n")
     print(f"{who_logging} {timestamp} - {text}")

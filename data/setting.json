@@ -7,6 +7,7 @@
     "camera": 0,
     "recognition_time_image": 2,
     "recognition_index_face": 0.6,
+    "face_scale_index": 0.7,
     "microphone": 1,
     "recognition_time_audio": 3,
     "recognition_time_add": 0.5,

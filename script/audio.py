@@ -41,7 +41,7 @@ class AudioProcessor:
         # Попытка загрузить YAMNet
         self.yamnet_ok = False
         try:
-            import tensorflow_hub as hub
+            #import tensorflow_hub as hub
             self.yamnet_model = hub.load(str(YAMNET_MODEL_PATH))
             class_map = self.yamnet_model.class_map_path().numpy().decode()
             with open(class_map, encoding="utf-8") as f:
