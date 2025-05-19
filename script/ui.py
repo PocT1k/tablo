@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit,
+    QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QLineEdit,
     QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit,
 )
 from PyQt5.QtCore import Qt, QTimer
@@ -14,6 +14,7 @@ from image import ImageProcessor
 from audio import AudioProcessor
 from load import check_exist, dict_get_or_set
 from conf import SETTING_JSON_PATH
+from stats import get_stats
 
 
 class SettingsWindow(QDialog):
@@ -41,7 +42,7 @@ class SettingsWindow(QDialog):
             lambda: QMessageBox.information(
                 self,
                 "Информация",
-                "TO DO..."
+                "TO DO..." # TODO - написать что-то о программе, как ей пользоваться
             )
         )
         layout.addWidget(info_btn)
@@ -79,35 +80,57 @@ class SettingsWindow(QDialog):
         dlg.setWindowTitle("Введите период статистики")
         form = QFormLayout(dlg)
 
+        # Имя сотрудника
+        name_edit = QLineEdit(dlg)
+        if hasattr(self, "stat_name"):
+            name_edit.setText(self.stat_name)
+        form.addRow("Имя сотрудника:", name_edit)
+
+        # Дата
         date_edit = QDateEdit(dlg)
         date_edit.setCalendarPopup(True)
-        date_edit.setDate(datetime.today().date())
+        date_edit.setDate(
+            getattr(self, "stat_period", [None, None, None])[0]
+            or datetime.today().date()
+        )
         form.addRow("Дата:", date_edit)
 
+        # Время начала
         start_edit = QTimeEdit(dlg)
         start_edit.setDisplayFormat("HH:mm:ss")
-        start_edit.setTime(datetime.now().time().replace(microsecond=0))
+        start_edit.setTime(
+            getattr(self, "stat_period", [None, None, None])[1]
+            or datetime.now().time().replace(microsecond=0)
+        )
         form.addRow("Время начала:", start_edit)
 
+        # Время окончания
         end_edit = QTimeEdit(dlg)
         end_edit.setDisplayFormat("HH:mm:ss")
-        end_edit.setTime(datetime.now().time().replace(microsecond=0))
+        end_edit.setTime(
+            getattr(self, "stat_period", [None, None, None])[2]
+            or datetime.now().time().replace(microsecond=0)
+        )
         form.addRow("Время окончания:", end_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
         form.addRow(buttons)
 
         def accept():
+            name = name_edit.text().strip()
+            if not name:
+                QMessageBox.warning(dlg, "Ошибка", "Введите имя сотрудника")
+                return
             d = date_edit.date().toPyDate()
             t0 = start_edit.time().toPyTime()
             t1 = end_edit.time().toPyTime()
-            # проверка порядка
             dt0 = datetime.combine(d, t0)
             dt1 = datetime.combine(d, t1)
             if dt0 >= dt1:
                 QMessageBox.warning(dlg, "Ошибка", "Время начала должно быть раньше времени окончания")
                 return
-            # передаём наружу
+            # сохраняем в атрибуты
+            self.stat_name = name
             self.stat_period = (d, t0, t1)
             dlg.accept()
 
@@ -115,8 +138,8 @@ class SettingsWindow(QDialog):
         buttons.rejected.connect(dlg.reject)
 
         if dlg.exec_() == QDialog.Accepted:
-            # (date, time_start, time_end)
-            print("Период:", self.stat_period)
+            print(self.stat_name, self.stat_period)
+            get_stats(self.parent.setting_json, self.stat_name, self.stat_period)
 
 class MainWindow(QMainWindow):
     def __init__(self):

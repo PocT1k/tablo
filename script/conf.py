@@ -20,8 +20,8 @@ DATASET_CONVERTED_DIR = PEOPLE_DIR / "dataset_converted"
 # Папка зображений
 IMAGE_MODEL_DIR = MODEL_DIR / "image"
 # Распознование лица (Face)
-FACE_MODEL_PATH = IMAGE_MODEL_DIR / "face_classifier.pkl"
-FACE_MODEL_OLD_DIR = MODEL_DIR / "face_classifier_old"
+FACE_MODEL_PATH = IMAGE_MODEL_DIR / "face.pkl"
+FACE_MODEL_OLD_DIR = MODEL_DIR / "face_old"
 # Распознование предметов (YOLOv5)
 YOLO_MODEL_PATH = IMAGE_MODEL_DIR / "yolov5su.pt"
 # Папка голоса
@@ -32,14 +32,25 @@ VOSK_MODEL_PATH = VOICE_MODEL_DIR / "vosk-model-small-ru-0.22"
 YAMNET_MODEL_PATH = VOICE_MODEL_DIR / "yamnet"
 
 # Логи
-FACE_ATTENDANCE_PATH = LOG_DIR / "face_attendance.csv"
-FACE_ATTENDANCE_OLD_DIR = LOG_DIR / "face_old"
-VOSK_WORLD_PATH = LOG_DIR / "vosk_world.csv"
-VOSK_WORLD_OLD_DIR = LOG_DIR / "vosk_old"
-YAMNET_INDICES_PATH = LOG_DIR / "yamn_indices.csv"
-YAMNET_INDICES_OLD_DIR = LOG_DIR / "yamn_old"
-YOLO_CLASSEC_PATH = LOG_DIR / "yolo_indices.csv"
-YOLO_CLASSEC_OLD_DIR = LOG_DIR / "yolo_old"
+FACE_ATTENDANCE_FILE = "face.csv"
+FACE_ATTENDANCE_OLD = "face_old"
+FACE_ATTENDANCE_PATH = LOG_DIR / FACE_ATTENDANCE_FILE
+FACE_ATTENDANCE_OLD_DIR = LOG_DIR / FACE_ATTENDANCE_OLD
+
+VOSK_WORLD_FILE = "vosk.csv"
+VOSK_WORLD_OLD = "vosk_old"
+VOSK_WORLD_PATH = LOG_DIR / VOSK_WORLD_FILE
+VOSK_WORLD_OLD_DIR = LOG_DIR / VOSK_WORLD_OLD
+
+YAMNET_INDICES_FILE = "yamn.csv"
+YAMNET_INDICES_OLD = "yamn_old"
+YAMNET_INDICES_PATH = LOG_DIR / YAMNET_INDICES_FILE
+YAMNET_INDICES_OLD_DIR = LOG_DIR / YAMNET_INDICES_OLD
+
+YOLO_CLASSEC_FILE = "yolo.csv"
+YOLO_CLASSEC_OLD = "yolo_old"
+YOLO_CLASSEC_PATH = LOG_DIR / YOLO_CLASSEC_FILE
+YOLO_CLASSEC_OLD_DIR = LOG_DIR / YOLO_CLASSEC_OLD
 
 # Копирование окружения
 # pip freeze > data\requirements.txt
