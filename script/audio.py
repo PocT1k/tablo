@@ -1,9 +1,9 @@
 import sounddevice as sd
 import json
-from vosk import Model, KaldiRecognizer
-from datetime import datetime
 import numpy as np
+from datetime import datetime
 from PyQt5.QtWidgets import QMessageBox
+from vosk import Model, KaldiRecognizer
 
 from load import dict_get_or_set, archive_file_by_date, write_attendance_dated
 from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели

@@ -11,15 +11,16 @@ def check_exist(file_path: str):
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
 """Получить или сдел зн. по умолчанию: (dict, ключ, зн. по умолч.)"""
-def dict_get_or_set(dict_data: dict, key: str, default_value: Any = None) -> Any:
+def dict_get_or_set(dict_data: dict, key: str, default_value: Any = None, save = True) -> Any:
     value = dict_data.get(key)
-
-    if value is None: # Если ключ не найден
+    if value:
+        pass
+    else:
         if default_value:
-            dict_data[key] = default_value # изменяем dict если флаг
+            value = default_value
             print(f"[LOAD] Не найден ключ: '{key}', подставленно: {default_value}")
-        value = default_value
-
+            if save: # изменяем dict если флаг
+                dict_data[key] = default_value
     return value
 
 def archive_file(file_path: str, archive_dir: str, create_file = False):
@@ -123,11 +124,11 @@ def get_log_path(file_name: str, old_path: str, passed_date: date) -> (str, bool
     date_str = passed_date.strftime("%Y%m%d")
     dated_name = f"{base}{date_str}{ext}"
 
-    # выбираем папку
     if passed_date == date.today():
         folder = LOG_DIR
     else:
         folder = os.path.join(LOG_DIR, old_path)
 
     full_path = os.path.join(folder, dated_name)
-    return full_path
+    exists = os.path.exists(full_path)
+    return full_path, exists

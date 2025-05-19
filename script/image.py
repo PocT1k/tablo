@@ -2,11 +2,11 @@ import os
 import pickle
 import cv2
 import numpy as np
-from sklearn.svm import SVC
 import face_recognition
+from sklearn.svm import SVC
 from datetime import datetime
-from PyQt5.QtWidgets import QMessageBox
 from ultralytics import YOLO
+from PyQt5.QtWidgets import QMessageBox
 
 from load import dict_get_or_set, archive_file, archive_file_by_date, write_attendance_dated
 from conf import (FACE_MODEL_PATH, YOLO_MODEL_PATH, # модели

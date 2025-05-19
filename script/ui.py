@@ -2,8 +2,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QLineEdit,
     QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit,
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import Qt, QTimer, QDate, QTime
+from PyQt5.QtGui import QImage, QPixmap, QFont
 import cv2
 import json
 import sounddevice as sd
@@ -60,6 +60,12 @@ class SettingsWindow(QDialog):
         self.setLayout(layout)
 
     def on_retrain_clicked(self):
+        if self.parent.timer.isActive():
+            QMessageBox.critical(self, "Error",
+                f"Сначала остановите выполнение сбора статистики"
+            )
+            return
+
         # Спрашиваем подтверждение
         reply = QMessageBox.question(self, "Подтвердить переобучение", "Начать переобучение?",
             QMessageBox.Yes | QMessageBox.No,
@@ -76,83 +82,123 @@ class SettingsWindow(QDialog):
             QMessageBox.information(self, "Успех", "Модель успешно переобучена!")
 
     def on_stats_clicked(self):
+        if self.parent.timer.isActive():
+            QMessageBox.critical(self, "Error",
+                f"Сначала остановите выполнение сбора статистики"
+            )
+            return
+
+        stats_conf = dict_get_or_set(self.parent.settings, "stats_conf", {})
+
         dlg = QDialog(self)
         dlg.setWindowTitle("Введите период статистики")
         form = QFormLayout(dlg)
 
-        # Имя сотрудника
+        # Получаем старые значения из stats_conf
+        name_old = dict_get_or_set(stats_conf, "name_old", "Name")
+        date_old = dict_get_or_set(stats_conf, "date_old", datetime.today().date().isoformat())
+        start_old = dict_get_or_set(stats_conf, "start_old", datetime.now().time().replace(microsecond=0).isoformat())
+        end_old = dict_get_or_set(stats_conf, "end_old", datetime.now().time().replace(microsecond=0).isoformat())
+
+        # Поля формы
         name_edit = QLineEdit(dlg)
-        if hasattr(self, "stat_name"):
-            name_edit.setText(self.stat_name)
+        name_edit.setText(name_old)
         form.addRow("Имя сотрудника:", name_edit)
 
-        # Дата
         date_edit = QDateEdit(dlg)
         date_edit.setCalendarPopup(True)
-        date_edit.setDate(
-            getattr(self, "stat_period", [None, None, None])[0]
-            or datetime.today().date()
-        )
+        date_edit.setDate(QDate.fromString(date_old, "yyyy-MM-dd"))
         form.addRow("Дата:", date_edit)
 
-        # Время начала
         start_edit = QTimeEdit(dlg)
         start_edit.setDisplayFormat("HH:mm:ss")
-        start_edit.setTime(
-            getattr(self, "stat_period", [None, None, None])[1]
-            or datetime.now().time().replace(microsecond=0)
-        )
+        start_edit.setTime(QTime.fromString(start_old, "HH:mm:ss"))
         form.addRow("Время начала:", start_edit)
 
-        # Время окончания
         end_edit = QTimeEdit(dlg)
         end_edit.setDisplayFormat("HH:mm:ss")
-        end_edit.setTime(
-            getattr(self, "stat_period", [None, None, None])[2]
-            or datetime.now().time().replace(microsecond=0)
-        )
+        end_edit.setTime(QTime.fromString(end_old, "HH:mm:ss"))
         form.addRow("Время окончания:", end_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
         form.addRow(buttons)
 
+        def reset_fields():
+            """Восстанавливает поля из stats_conf."""
+            name_edit.setText(stats_conf["name_old"])
+            date_edit.setDate(QDate.fromString(stats_conf["date_old"], "yyyy-MM-dd"))
+            start_edit.setTime(QTime.fromString(stats_conf["start_old"], "HH:mm:ss"))
+            end_edit.setTime(QTime.fromString(stats_conf["end_old"], "HH:mm:ss"))
+
         def accept():
             name = name_edit.text().strip()
             if not name:
                 QMessageBox.warning(dlg, "Ошибка", "Введите имя сотрудника")
+                reset_fields()
                 return
+
             d = date_edit.date().toPyDate()
             t0 = start_edit.time().toPyTime()
             t1 = end_edit.time().toPyTime()
-            dt0 = datetime.combine(d, t0)
-            dt1 = datetime.combine(d, t1)
-            if dt0 >= dt1:
+            if datetime.combine(d, t0) >= datetime.combine(d, t1):
                 QMessageBox.warning(dlg, "Ошибка", "Время начала должно быть раньше времени окончания")
+                reset_fields()
                 return
-            # сохраняем в атрибуты
+
+            # Сохраняем новые значения
             self.stat_name = name
             self.stat_period = (d, t0, t1)
+
+            stats_conf["name_old"] = name
+            stats_conf["date_old"] = d.isoformat()
+            stats_conf["start_old"] = t0.strftime("%H:%M:%S")
+            stats_conf["end_old"] = t1.strftime("%H:%M:%S")
+            self.parent.save_settings()
+
             dlg.accept()
 
         buttons.accepted.connect(accept)
         buttons.rejected.connect(dlg.reject)
 
-        if dlg.exec_() == QDialog.Accepted:
-            print(self.stat_name, self.stat_period)
-            get_stats(self.parent.setting_json, self.stat_name, self.stat_period)
+        result = dlg.exec_()
+
+        # Если пользователь нажал OK и всё прошло в accept — запускаем расчёт
+        if result == QDialog.Accepted:
+            percent_stats, percent_work = get_stats(self.parent.settings, self.stat_name, self.stat_period)
+            print(f"[STATS] Собрано {percent_stats}%, Работоспособность {percent_work}")
+            # Формируем строки для даты и времени
+            d, t0, t1 = self.stat_period
+            date_str = d.isoformat()
+            start_str = t0.strftime("%H:%M:%S")
+            end_str = t1.strftime("%H:%M:%S")
+
+            # Собираем сообщение
+            msg = (
+                f"По сотруднику {self.stat_name} за {date_str} "
+                f"в период {start_str}–{end_str} собрано {percent_stats:.1f}% статистики.\n"
+                f"Коэффициент работоспособности сотрудника составил {percent_work:.2f}%."
+            )
+
+            # Показываем «краси&вую плашку»
+            QMessageBox.information(
+                self,
+                "Результаты статистики",
+                msg
+            )
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings_win = None
 
         # Загрузка JSON настроек
         check_exist(SETTING_JSON_PATH)
         with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
-            self.setting_json = json.load(f)
+            self.settings = json.load(f)
         self.settings_path = SETTING_JSON_PATH
 
         # Заголовок и геометрия окна
-        win_conf = dict_get_or_set(self.setting_json, "Window", {})
+        win_conf = dict_get_or_set(self.settings, "Window", {})
         self.setWindowTitle(dict_get_or_set(win_conf, "name", "WathGarg AI"))
         screen = QApplication.primaryScreen().availableGeometry()
         h = dict_get_or_set(win_conf, "h", 0.6)
@@ -162,8 +208,8 @@ class MainWindow(QMainWindow):
                   (screen.height() - self.height()) // 2)
 
         # Обработчики
-        self.image_processor = ImageProcessor(self.setting_json)
-        self.audio_processor = AudioProcessor(self.setting_json)
+        self.image_processor = ImageProcessor(self.settings)
+        self.audio_processor = AudioProcessor(self.settings)
 
         # Вычисление геометрии
         self.margin = int(min(self.width(), self.height()) * 0.03)
@@ -230,10 +276,10 @@ class MainWindow(QMainWindow):
         self.rotation = (self.rotation + 90) % 360
         print(f"[UI] Rotation set to {self.rotation}")
 
-    def _save_settings(self):
+    def save_settings(self):
         try:
             with open(self.settings_path, "w", encoding="utf-8") as f:
-                json.dump(self.setting_json, f, ensure_ascii=False, indent=4)
+                json.dump(self.settings, f, ensure_ascii=False, indent=4)
             print(f"[SETTINGS] Сохранены в {self.settings_path}")
         except Exception as e:
             print(f"[SETTINGS ERROR] Не удалось сохранить настройки: {e}")
@@ -263,7 +309,7 @@ class MainWindow(QMainWindow):
                 cap.release()
         # Формируем имена 'i: Name'
         cam_names = [f"{i}: {name}" for i, name in enumerate(cams)]
-        cam_idx = dict_get_or_set(self.setting_json, "camera", 0)
+        cam_idx = dict_get_or_set(self.settings, "camera", 0)
         if cam_idx < len(cam_names):
             cam_display = cam_names[cam_idx]
         else:
@@ -275,7 +321,7 @@ class MainWindow(QMainWindow):
         devs = sd.query_devices()
         mics = [d['name'] for d in devs if d['max_input_channels'] > 0]
         mic_names = [f"{i}: {name}" for i, name in enumerate(mics)]
-        mic_idx = dict_get_or_set(self.setting_json, "microphone", 0)
+        mic_idx = dict_get_or_set(self.settings, "microphone", 0)
         if mic_idx < len(mic_names):
             mic_display = mic_names[mic_idx]
         else:
@@ -358,7 +404,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Нет камер", "Не найдено ни одной камеры")
             return
 
-        current = self.setting_json.get("camera", idxs[0])
+        current = self.settings.get("camera", idxs[0])
         current_name = next((n for n in names if int(n.split(':')[0]) == current), names[0])
         choice, ok = QInputDialog.getItem(
             self, "Выбор камеры", "Устройства:", names,
@@ -372,7 +418,7 @@ class MainWindow(QMainWindow):
         # Останавливаем текущий поток (если был)
         self.image_processor.stop_camera()
         # Применяем новые настройки
-        self.setting_json["camera"] = new_index
+        self.settings["camera"] = new_index
         self.image_processor.settings["camera"] = new_index
         self.image_processor.camera_index = new_index
 
@@ -382,7 +428,7 @@ class MainWindow(QMainWindow):
         if self.timer.isActive():
             if not self.image_processor.start_camera():
                 # Откатываем все настройки
-                self.setting_json["camera"] = old_index
+                self.settings["camera"] = old_index
                 self.image_processor.settings["camera"] = old_index
                 self.image_processor.camera_index = old_index
                 # Пытаемся вернуть старую камеру
@@ -403,7 +449,7 @@ class MainWindow(QMainWindow):
 
         self.btn_camera.setText(f"Выбрать камеру\n{choice}")
         print(f"[UI] Выбрана камера: {choice}")
-        self._save_settings()
+        self.save_settings()
 
     def _select_microphone(self):
         import sounddevice as sd
@@ -414,7 +460,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Нет микрофонов", "Не найдено ни одного микрофона")
             return
 
-        current = self.setting_json.get("microphone", 0)
+        current = self.settings.get("microphone", 0)
         current_name = next((n for n in names if int(n.split(':')[0]) == current), names[0])
         choice, ok = QInputDialog.getItem(
             self, "Выбор микрофона", "Устройства:", names,
@@ -429,7 +475,7 @@ class MainWindow(QMainWindow):
         # Останавливаем старый поток (если он был запущен)
         self.audio_processor.stop_microphone()
         # Применяем новые настройки
-        self.setting_json["microphone"] = new_idx
+        self.settings["microphone"] = new_idx
         self.audio_processor.settings["microphone"] = new_idx
         self.audio_processor.mic_index = new_idx
         # Получаем человекочитаемые имена
@@ -440,7 +486,7 @@ class MainWindow(QMainWindow):
         if getattr(self.audio_processor, "stream", None):
             if not self.audio_processor.start_microphone():
                 # Откатываем настройки на старые
-                self.setting_json["microphone"] = old_idx
+                self.settings["microphone"] = old_idx
                 self.audio_processor.settings["microphone"] = old_idx
                 self.audio_processor.mic_index = old_idx
                 # Пытаемся вернуть старый микрофон
@@ -462,7 +508,7 @@ class MainWindow(QMainWindow):
 
         self.btn_microphone.setText(f"Выбрать микрофон\n{new_name}")
         print(f"[UI] Выбран микрофон: {new_name}")
-        self._save_settings()
+        self.save_settings()
 
     def _stor_processing(self):
         self.timer.stop()
@@ -496,7 +542,8 @@ class MainWindow(QMainWindow):
             self._stor_processing()
 
     def _open_settings(self):
-        self.settings_win = SettingsWindow(self)
+        if not self.settings_win:
+            self.settings_win = SettingsWindow(self)
         self.settings_win.show()
 
     def _update_frame(self):
