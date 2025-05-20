@@ -14,10 +14,15 @@ from conf import (FACE_MODEL_PATH, YOLO_MODEL_PATH, # модели
     DATASET_CONVERTED_DIR, DATASET_RAW_DIR) # датасеты
 
 class ImageProcessor:
-    def __init__(self, settings=None):
-        self.settings = settings or {}
+    def __init__(self, settings):
+        self.settings = settings
         # Интервал распознавания (секунды) и индекс камеры
         self.recognition_time = dict_get_or_set(self.settings, "image_time_recognition", 2)
+        self.draw_conf = dict_get_or_set(self.settings, "draw_conf", {})
+        self.draw_conf["face"] = dict_get_or_set(self.draw_conf, "face", True)
+        self.draw_conf["yolo"] = dict_get_or_set(self.draw_conf, "yolo", True)
+        self.draw_conf["vosk"] = dict_get_or_set(self.draw_conf, "vosk", True)
+        self.draw_conf["yamn"] = dict_get_or_set(self.draw_conf, "yamn", True)
         self.camera_index = dict_get_or_set(self.settings, "camera", 0)
         print(f"[VIDEO] Окно распознования изображения = {self.recognition_time}с.")
         self.video_capture = None
@@ -321,24 +326,26 @@ class ImageProcessor:
 
         frame_copy = frame.copy()
         # рисуем предметы (синяя)
-        for res in self.items_results:
-            t, r, b, l = res["location"]
-            cv2.rectangle(frame_copy, (l, t), (r, b), (255, 0, 0), 2)
-            cv2.putText(
-                frame_copy,
-                f"{res['label']} ({res['threshold'] * 100:.1f}%)",
-                (l, t - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), 2
-            )
+        if self.draw_conf["yolo"]:
+            for res in self.items_results:
+                t, r, b, l = res["location"]
+                cv2.rectangle(frame_copy, (l, t), (r, b), (255, 0, 0), 2)
+                cv2.putText(
+                    frame_copy,
+                    f"{res['label']} ({res['threshold'] * 100:.1f}%)",
+                    (l, t - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), 2
+                )
         # рисуем лица (зелёная)
-        for res in self.faces_results:
-            t, r, b, l = res["location"]
-            cv2.rectangle(frame_copy, (l, t), (r, b), (0, 255, 0), 2)
-            cv2.putText(
-                frame_copy,
-                f"{res['name']} ({res['threshold'] * 100:.1f}%)",
-                (l, t - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
-            )
+        if self.draw_conf["face"]:
+            for res in self.faces_results:
+                t, r, b, l = res["location"]
+                cv2.rectangle(frame_copy, (l, t), (r, b), (0, 255, 0), 2)
+                cv2.putText(
+                    frame_copy,
+                    f"{res['name']} ({res['threshold'] * 100:.1f}%)",
+                    (l, t - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2
+                )
 
         return frame_copy, {"faces": self.faces_results, "items": self.items_results}

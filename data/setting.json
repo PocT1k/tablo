@@ -124,5 +124,9 @@
         "end_old": "00:46:34"
     },
     "draw_conf": {
+        "face": true,
+        "yolo": true,
+        "yamn": true,
+        "vosk": true
     }
 }

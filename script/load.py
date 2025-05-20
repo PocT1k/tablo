@@ -7,15 +7,17 @@ from typing import Any
 from conf import LOG_DIR
 
 
-def check_exist(file_path: str):
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
 """Получить или сдел зн. по умолчанию: (dict, ключ, зн. по умолч.)"""
 def dict_get_or_set(dict_data: dict, key: str, default_value: Any = None, save = True) -> Any:
+    if dict_data == {}:
+        if default_value is None:
+            print(f"[LOAD] Словарь пустой, а дефолтного значения нет. Ключ '{key}'")
+            exit(0)
+        else:
+            dict_data[key] = default_value
+
     value = dict_data.get(key)
-    if value:
-        pass
-    else:
+    if value is None:
         if default_value:
             value = default_value
             print(f"[LOAD] Не найден ключ: '{key}', подставленно: {default_value}")

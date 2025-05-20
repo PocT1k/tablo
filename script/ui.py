@@ -1,9 +1,10 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QLineEdit,
-    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit,
+    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox, QVBoxLayout
 )
 from PyQt5.QtCore import Qt, QTimer, QDate, QTime
-from PyQt5.QtGui import QImage, QPixmap, QFont
+from PyQt5.QtGui import QImage, QPixmap
+import os
 import cv2
 import json
 import sounddevice as sd
@@ -12,7 +13,7 @@ from datetime import datetime
 
 from image import ImageProcessor
 from audio import AudioProcessor
-from load import check_exist, dict_get_or_set
+from load import dict_get_or_set
 from conf import SETTING_JSON_PATH
 from stats import get_stats
 
@@ -21,6 +22,7 @@ class SettingsWindow(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        draw_conf = self.parent.image_processor.draw_conf
 
         # Заголовок
         self.setWindowTitle("Настройки")
@@ -42,10 +44,38 @@ class SettingsWindow(QDialog):
             lambda: QMessageBox.information(
                 self,
                 "Информация",
-                "TO DO..." # TODO - написать что-то о программе, как ей пользоваться
+                f"Настоящая программа сделана в рамкой дипломного проекта по направлению Информатика (Программирование)\n"
+                f"Программа получает доступ к выбранным интерфейчас: камере и микрофону\n"
+                f"После этого возможен сбор статистики:\n"
+                f"[FACE] Распознование лица\n"
+                f"[YOLO] Распознование предметов\n"
+                f"[VOSK] Распознвоание слов\n"
+                f"[YAMN] Распознование звуков\n"
+                f"Собранная статистика участвует в оценке эффективности работника за выбранный период\n"
+                f"Программа выводит % собранной статистики за указанное временное окно "
+                f"и Коэффециэнт работоспособности сотрудника, исходя из собранной статистики."
             )
         )
         layout.addWidget(info_btn)
+
+        # Группа для чекбоксов
+        grp = QGroupBox("Настройки отрисовки", self)
+        grp_layout = QVBoxLayout(grp)
+        # Чекбоксы: для каждого ключа — своё описание
+        for key, text in (
+            ("face",  "Отрисовывать распознавание лица"),
+            ("yolo",  "Отрисовывать объекты YOLO"),
+            ("vosk",  "Отрисовывать события VOSK (речь)"),
+            ("yamn",  "Отрисовывать события YAMNET")
+        ):
+            # загружаем текущее значение (или True по умолчанию)
+            checked = dict_get_or_set(draw_conf, key, True)
+            cb = QCheckBox(text, self)
+            cb.setChecked(checked)
+            # при переключении сохраняем в draw_conf и в settings
+            cb.stateChanged.connect(lambda state, k=key: self._on_draw_toggle(k, state))
+            grp_layout.addWidget(cb)
+        layout.addWidget(grp)
 
         # Кнопка переобучени
         retrain_btn = QPushButton("Начать переобучение\nраспознования лиц", self)
@@ -53,11 +83,15 @@ class SettingsWindow(QDialog):
         layout.addWidget(retrain_btn)
 
         # Кнопка статистика
-        stats_btn = QPushButton("Узнать статистику рабочего", self)
+        stats_btn = QPushButton("Узнать статистику рабочего\n", self)
         stats_btn.clicked.connect(self.on_stats_clicked)
         layout.addWidget(stats_btn)
 
         self.setLayout(layout)
+
+    def _on_draw_toggle(self, key: str, state: int):
+        self.parent.image_processor.draw_conf[key] = bool(state)
+        self.parent.save_settings()
 
     def on_retrain_clicked(self):
         if self.parent.timer.isActive():
@@ -189,20 +223,28 @@ class SettingsWindow(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.settings_win = None
+        self.window_of_settings = None
 
         # Загрузка JSON настроек
-        check_exist(SETTING_JSON_PATH)
-        with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
-            self.settings = json.load(f)
+        if os.path.exists(SETTING_JSON_PATH):
+            try:
+                with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
+                    self.settings = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                # файл либо битый, либо вдруг удалился между exists() и open()
+                self.settings = dict()
+        else:
+            self.settings = dict()
+
+        print(self.settings)
         self.settings_path = SETTING_JSON_PATH
 
         # Заголовок и геометрия окна
-        win_conf = dict_get_or_set(self.settings, "Window", {})
-        self.setWindowTitle(dict_get_or_set(win_conf, "name", "WathGarg AI"))
+        self.win_conf = dict_get_or_set(self.settings, "Window", {})
+        self.setWindowTitle(dict_get_or_set(self.win_conf, "name", "WathGarg AI"))
         screen = QApplication.primaryScreen().availableGeometry()
-        h = dict_get_or_set(win_conf, "h", 0.6)
-        w = dict_get_or_set(win_conf, "w", 0.4)
+        h = dict_get_or_set(self.win_conf, "h", 0.6)
+        w = dict_get_or_set(self.win_conf, "w", 0.4)
         self.resize(int(screen.width() * w), int(screen.height() * h))
         self.move((screen.width() - self.width()) // 2,
                   (screen.height() - self.height()) // 2)
@@ -542,9 +584,9 @@ class MainWindow(QMainWindow):
             self._stor_processing()
 
     def _open_settings(self):
-        if not self.settings_win:
-            self.settings_win = SettingsWindow(self)
-        self.settings_win.show()
+        if not self.window_of_settings:
+            self.window_of_settings = SettingsWindow(self)
+        self.window_of_settings.show()
 
     def _update_frame(self):
         # Видеопоток
