@@ -330,7 +330,7 @@ class MainWindow(QMainWindow):
         # Стандартные кнопки
         self.btn_left = QPushButton("⟲", self)
         self.btn_right = QPushButton("⟳", self)
-        self.btn_start = QPushButton("Старт/Стоп", self)
+        self.btn_start = QPushButton("Старт", self)
         self.btn_settings = QPushButton("Настройки", self)
 
         # Кнопка выбора камеры
@@ -466,23 +466,32 @@ class MainWindow(QMainWindow):
         old_name = next((n for n in names if int(n.split(':')[0]) == old_index), f"{old_index}")
         # Если видео уже работало — пробуем сразу запустить новую камеру
         if self.timer.isActive():
-            if not self.image_processor.start_camera():
+            try:
+                success = self.image_processor.start_camera()
+            except Exception as e:
+                success = False
+            if not success:
                 # Откатываем все настройки
                 self.settings["camera"] = old_index
                 self.image_processor.settings["camera"] = old_index
                 self.image_processor.camera_index = old_index
                 # Пытаемся вернуть старую камеру
-                if not self.image_processor.start_camera():
+                try:
+                    restore_ok = self.image_processor.start_camera()
+                except Exception:
+                    restore_ok = False
+
+                if not restore_ok:
                     QMessageBox.critical(
                         self, "Критическая ошибка",
-                        f"Не удалось ни открыть новую камеру «{new_name}»"
+                        f"Не удалось ни открыть новую камеру «{new_name}» "
                         f"ни вернуть старую «{old_name}»."
                     )
                     self._stor_processing()
                 else:
                     QMessageBox.critical(
                         self, "Ошибка смены камеры",
-                        f"Не удалось открыть камеру «{new_name}»"
+                        f"Не удалось открыть камеру «{new_name}», "
                         f"вернулась старая «{old_name}»."
                     )
                 return
@@ -523,14 +532,25 @@ class MainWindow(QMainWindow):
         old_name = next((n for n in names if int(n.split(':')[0]) == old_idx), f"{old_idx}")
 
         # Если аудио уже работало — пробуем сразу запустить новый микрофон
-        if getattr(self.audio_processor, "stream", None):
-            if not self.audio_processor.start_microphone():
+        if self.audio_processor.running_recognition:
+            try:
+                ok = self.audio_processor.start_microphone()
+            except Exception as e:
+                ok = False
+
+            if not ok:
                 # Откатываем настройки на старые
                 self.settings["microphone"] = old_idx
                 self.audio_processor.settings["microphone"] = old_idx
                 self.audio_processor.mic_index = old_idx
+
                 # Пытаемся вернуть старый микрофон
-                if not self.audio_processor.start_microphone():
+                try:
+                    restore_ok = self.audio_processor.start_microphone()
+                except Exception:
+                    restore_ok = False
+
+                if not restore_ok:
                     QMessageBox.critical(
                         self,
                         "Критическая ошибка",
@@ -578,8 +598,10 @@ class MainWindow(QMainWindow):
 
             self.timer.start(30)
             print("[UI PROC] Запущены обработка видео и аудио")
+            self.btn_start.setText("Стоп")
         else:
             self._stor_processing()
+            self.btn_start.setText("Старт")
 
     def _open_settings(self):
         if not self.window_of_settings:

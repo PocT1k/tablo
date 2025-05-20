@@ -231,13 +231,6 @@ class ImageProcessor:
         return False, None
 
     def proc_face(self, frame):
-        """
-        return список словарей с ключами:
-            'name' (строка),
-            'threshold' (float),
-            'location' (top, right, bottom, left).
-        Не меняет исходный frame!
-        """
         if not self.face_ok:
             return
         faces = []
@@ -276,21 +269,11 @@ class ImageProcessor:
         return faces
 
     def proc_yolo(self, frame):
-        """
-        return список словарей вида:
-            'label' (строка),
-            'threshold' (float),
-            'location' (top, right, bottom, left).
-        Не меняет исходный frame!
-        """
         if not self.yolo_ok:
             return
         items = []
         results = self.yolo_model(frame, verbose=False)[0]
 
-        # results.boxes.cls — индексы классов
-        # results.boxes.conf — confidence
-        # results.boxes.xyxy — [x1, y1, x2, y2]
         for cls, conf, box in zip(results.boxes.cls, results.boxes.conf, results.boxes.xyxy):
             idx = int(cls)
             if conf < self.yolo_threshold:

@@ -109,17 +109,6 @@ def write_attendance_dated(file_path: str, text, timestamp = None, who_logging: 
     print(f"{who_logging} {timestamp} - {text}")
     return dated_path
 
-# def get_dated_path(base_path: str, old_path: str, date_str: str) -> (str, bool):
-#     folder, filename = os.path.split(base_path)
-#     name, ext = os.path.splitext(filename)
-#     dated_filename = f"{name}{date_str}{ext}"
-#     dated_path = os.path.join(folder, dated_filename)
-#
-#     today_str = datetime.now().strftime("%Y%m%d")
-#     is_today = (date_str == today_str)
-#
-#     return dated_path, is_today
-
 def get_log_path(file_name: str, old_path: str, passed_date: date) -> (str, bool):
     # разбиваем имя и расширение
     base, ext = os.path.splitext(file_name)

@@ -1,4 +1,4 @@
-import tensorflow_hub as hub # НЕ УБИРАТЬ ЭТУ СТРОЧКУ БЛЯТЬ!!! ЭТА ШТУКА ДОЛЖНА ПОДКЛЮЧАТЬСЯ В ФАЙЛЕ ТОЧКИ ВХОДА!!!
+#import tensorflow_hub as hub # НЕ УБИРАТЬ ЭТУ СТРОЧКУ БЛЯТЬ!!! ЭТА ШТУКА ДОЛЖНА ПОДКЛЮЧАТЬСЯ В ФАЙЛЕ ТОЧКИ ВХОДА!!!
 import sys
 from PyQt5.QtWidgets import QApplication
 
@@ -15,5 +15,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-#TODO Детекция FACE из YOLO
