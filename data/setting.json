@@ -54,6 +54,7 @@
         "book": 1.0
     },
     "microphone": 1,
+    "samplerate": 16000,
     "audio_time_recognition": 3,
     "audio_time_add_recognition": 0.5,
     "vosk_sr": 16000,
@@ -109,7 +110,7 @@
         "typing": 1.0,
         "media": 0.7
     },
-        "Window": {
+    "Window": {
         "name": "WathGarg AI",
         "h": 0.6,
         "w": 0.4

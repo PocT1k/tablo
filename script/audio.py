@@ -18,33 +18,35 @@ class AudioProcessor:
         self.settings = settings or {}
         self.audio_detect_threshold = dict_get_or_set( self.settings, "audio_detect_threshold", 0.0005)
         self.audio_active_timeout = dict_get_or_set(self.settings, "audio_active_timeout", 1.0)
-
         self.recognition_time = dict_get_or_set(self.settings, "audio_time_recognition", 3)
         self.recognition_time_add = dict_get_or_set(self.settings, "audio_time_add_recognition", 0.5)
+        self.samplerate = dict_get_or_set(self.settings, "samplerate", 16000)
         self.mic_index = dict_get_or_set(self.settings, "microphone", 0)
         print(f"[AUDIO] Окно распознования звука = {self.recognition_time}с.+{self.recognition_time_add}с.")
 
         self.chunk_duration = 0.5
-        self.chunks_per_recognition = math.ceil(self.recognition_time / self.chunk_duration)
-        self.chunks_per_recognition_add = math.ceil(self.recognition_time_add / self.chunk_duration)
-        self._chunk_buffer = deque(maxlen=self.chunks_per_recognition + self.chunks_per_recognition_add)
+        self.chunks_recognition_ticks = math.ceil(self.recognition_time / self.chunk_duration)
+        self.chunks_recognition_add_ticks = math.ceil(self.recognition_time_add / self.chunk_duration)
+        self.chunk_samples = int(self.chunk_duration * self.samplerate)
+        self._chunk_buffer = deque(maxlen=self.chunks_recognition_ticks + self.chunks_recognition_add_ticks)
         self._chunk_counter = 0
 
         # Для работы детекта микрофона
-        self._audio_active_counter = 0
+        self.audio_active_ticks = math.ceil(self.audio_active_timeout / self.recognition_time)
+        self.np_iinfo_int16_max = np.iinfo('int16').max
         self.audio_active = False
         # Флаги запуска циклов
         self.running_recognition = False
         self.running_recognition_thread = False
 
         # VOSK
-        self.samplerate = dict_get_or_set(self.settings, "vosk_sr", 16000)
+        self.vosk_sr = dict_get_or_set(self.settings, "vosk_sr", 16000) or self.samplerate
         archive_file_by_date(VOSK_WORLD_PATH, VOSK_WORLD_OLD_DIR, True)
         # Попытка загрузить Vosk
         self.vosk_ok = False
         try:
             self.vosk_model = Model(str(VOSK_MODEL_PATH))
-            self.recognizer = KaldiRecognizer(self.vosk_model, self.samplerate)
+            self.recognizer = KaldiRecognizer(self.vosk_model, self.vosk_sr)
             self.vosk_ok = True
             print("[VOSK] Модель Vosk загружена успешно.")
         except Exception as e:
@@ -53,7 +55,7 @@ class AudioProcessor:
                                 f'Модуль распознования слов VOSK отключён \nМодель не найдена \n{e}')
 
         # YAMNet
-        self.yamnet_sr = dict_get_or_set(self.settings, "yamnet_sr", 16000)
+        self.yamnet_sr = dict_get_or_set(self.settings, "yamnet_sr", 16000) or self.samplerate
         self.yamnet_threshold = dict_get_or_set(self.settings, "yamnet_threshold", 0.6)
         self.yamnet_indices = dict_get_or_set(self.settings, "yamnet_indices", {})
         self.yamnet_groups = {
@@ -148,9 +150,8 @@ class AudioProcessor:
 
         while self.running_recognition:
             # записываем один «чанк» длительностью chunk_duration
-            samples = int(self.chunk_duration * self.samplerate)
             audio_chunk = sd.rec(
-                samples,
+                self.chunk_samples,
                 samplerate=self.samplerate,
                 channels=1,
                 dtype='int16'
@@ -160,11 +161,11 @@ class AudioProcessor:
             self._chunk_buffer.append(audio_chunk)
 
             # детект аудио-активности по RMS
-            norm = audio_chunk.astype(np.float32) / np.iinfo('int16').max
+            norm = audio_chunk.astype(np.float32) / self.np_iinfo_int16_max
             rms = np.sqrt(np.mean(norm ** 2))
             if rms > self.audio_detect_threshold:
                 self.audio_active = True
-                self._audio_active_counter = int(self.audio_active_timeout / self.recognition_time)
+                self._audio_active_counter = self.audio_active_ticks
             else:
                 if self._audio_active_counter > 0:
                     self._audio_active_counter -= 1
@@ -174,7 +175,7 @@ class AudioProcessor:
             now = datetime.now().strftime("%Y-%m-%d,%H:%M:%S")
             # Обработка накопившегося буффера
             self._chunk_counter += 1
-            if self._chunk_counter >= self.chunks_per_recognition:
+            if self._chunk_counter >= self.chunks_recognition_ticks:
                 self._chunk_counter = 0
                 audio_full = np.concatenate(self._chunk_buffer, axis=0)
 
