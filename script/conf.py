@@ -56,6 +56,17 @@ YOLO_CLASSEC_OLD_DIR = LOG_DIR / YOLO_CLASSEC_OLD
 # pip freeze > data\requirements.txt
 # pip install -r data\requirements.txt
 
+# Обовить pip
+# python -m pip install --upgrade pip
+# pip --versuin
+# должна быть 25.1.1+ для установки dlib
+
+# Установка dlib для face-recognition
+# pip install data/requ/dlib-19.24.99-cp312-cp312-win_amd64.whl
+# или pip install dlib --no-binary=dlib
+
+# Для dlib нужен cMake https://cmake.org/download/
+
 # tablo/
 # │
 # ├── scripts/                   # Все Python-скрипты
@@ -64,6 +75,7 @@ YOLO_CLASSEC_OLD_DIR = LOG_DIR / YOLO_CLASSEC_OLD
 # │   ├── ui.py                  # Интерфейс (PyQt)
 # │   ├── image.py               # Обработка изображение - распознавание лиц, детектирование предметов
 # │   ├── audio.py               # Обработка звука - распознавание звуков, распознавание слов
+# │   ├── stats.py               # Обработка статистики - открытие и чтение всех файлов
 # │   └── load.py                # Вспомогательные функции
 # │
 # ├── data/                      # Все данные
