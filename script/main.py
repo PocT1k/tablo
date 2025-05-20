@@ -16,6 +16,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-#TODO показ работы микрофона - зелёная точка
 #TODO вывод текста vosk
 #TODO вывод действия yamnet

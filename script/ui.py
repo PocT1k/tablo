@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QLineEdit,
-    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox, QVBoxLayout
+    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox
 )
 from PyQt5.QtCore import Qt, QTimer, QDate, QTime
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QBrush
 import os
 import cv2
 import json
@@ -226,18 +226,16 @@ class MainWindow(QMainWindow):
         self.window_of_settings = None
 
         # Загрузка JSON настроек
-        if os.path.exists(SETTING_JSON_PATH):
+        self.settings_path = SETTING_JSON_PATH
+        if os.path.exists(self.settings_path):
             try:
-                with open(SETTING_JSON_PATH, "r", encoding="utf-8") as f:
+                with open(self.settings_path, "r", encoding="utf-8") as f:
                     self.settings = json.load(f)
             except (json.JSONDecodeError, FileNotFoundError):
                 # файл либо битый, либо вдруг удалился между exists() и open()
                 self.settings = dict()
         else:
             self.settings = dict()
-
-        print(self.settings)
-        self.settings_path = SETTING_JSON_PATH
 
         # Заголовок и геометрия окна
         self.win_conf = dict_get_or_set(self.settings, "Window", {})
@@ -597,6 +595,7 @@ class MainWindow(QMainWindow):
 
         # Обработка изображения (возвращает кадр и словарь с результатами)
         processed_frame, detect_results = self.image_processor.proc_image(frame)
+
         # Конвертация для Qt
         rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -604,4 +603,16 @@ class MainWindow(QMainWindow):
         pix = QPixmap.fromImage(qt).scaled(
             self.video_label.size(), Qt.KeepAspectRatio
         )
+
+        # Индикатор звука в левом верхнем углу
+        painter = QPainter(pix)
+        painter.setPen(Qt.NoPen)
+        # выбираем цвет по флагу audio_active
+        color = Qt.green if self.audio_processor.audio_active else Qt.lightGray
+        painter.setBrush(QBrush(color))
+        r = 10  # радиус круга
+        margin = 5
+        painter.drawEllipse(margin, margin, 2*r, 2*r)
+        painter.end()
+
         self.video_label.setPixmap(pix)

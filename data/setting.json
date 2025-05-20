@@ -1,11 +1,4 @@
 {
-    "Window": {
-        "name": "WathGarg AI",
-        "h": 0.6,
-        "w": 0.4
-    },
-    "default_weight": 1.0,
-    "default_timeout": 60,
     "camera": 0,
     "image_time_recognition": 2,
     "face_threshold": 0.6,
@@ -116,6 +109,13 @@
         "typing": 1.0,
         "media": 0.7
     },
+        "Window": {
+        "name": "WathGarg AI",
+        "h": 0.6,
+        "w": 0.4
+    },
+    "default_weight": 1.0,
+    "default_timeout": 60,
     "stats_persent_coef": 1.02,
     "stats_conf": {
         "name_old": "Kirill",
@@ -128,5 +128,7 @@
         "yolo": true,
         "yamn": true,
         "vosk": true
-    }
+    },
+    "audio_detect_threshold": 0.0005,
+    "audio_active_timeout": 1.0
 }

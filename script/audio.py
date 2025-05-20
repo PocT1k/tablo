@@ -1,9 +1,11 @@
 import sounddevice as sd
 import json
 import numpy as np
+import math
 from datetime import datetime
 from PyQt5.QtWidgets import QMessageBox
 from vosk import Model, KaldiRecognizer
+from collections import deque
 
 from load import dict_get_or_set, archive_file_by_date, write_attendance_dated
 from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
@@ -14,10 +16,26 @@ from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
 class AudioProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
-        self.recognition_time = dict_get_or_set(self.settings, "audio_time_recognition", 5)
+        self.audio_detect_threshold = dict_get_or_set( self.settings, "audio_detect_threshold", 0.0005)
+        self.audio_active_timeout = dict_get_or_set(self.settings, "audio_active_timeout", 1.0)
+
+        self.recognition_time = dict_get_or_set(self.settings, "audio_time_recognition", 3)
         self.recognition_time_add = dict_get_or_set(self.settings, "audio_time_add_recognition", 0.5)
         self.mic_index = dict_get_or_set(self.settings, "microphone", 0)
         print(f"[AUDIO] Окно распознования звука = {self.recognition_time}с.+{self.recognition_time_add}с.")
+
+        self.chunk_duration = 0.5
+        self.chunks_per_recognition = math.ceil(self.recognition_time / self.chunk_duration)
+        self.chunks_per_recognition_add = math.ceil(self.recognition_time_add / self.chunk_duration)
+        self._chunk_buffer = deque(maxlen=self.chunks_per_recognition + self.chunks_per_recognition_add)
+        self._chunk_counter = 0
+
+        # Для работы детекта микрофона
+        self._audio_active_counter = 0
+        self.audio_active = False
+        # Флаги запуска циклов
+        self.running_recognition = False
+        self.running_recognition_thread = False
 
         # VOSK
         self.samplerate = dict_get_or_set(self.settings, "vosk_sr", 16000)
@@ -61,10 +79,6 @@ class AudioProcessor:
             print("[YAMN ERROR] Не удалось загрузить YAMNet:", e)
             QMessageBox.warning(None, "Ошибка загрузки",
                                 f'Модуль распознования звуков YAMNET отключён \nМодель не найдена или ошибка подключения tensorflow_hub \n{e}')
-
-        # Флаги запуска циклов
-        self.running_recognition = False
-        self.running_recognition_thread = False
 
     def start_microphone(self):
         idx = self.mic_index
@@ -129,38 +143,48 @@ class AudioProcessor:
 
     def proc_audio(self):
         self.running_recognition = True
-        self.running_recognition_while  = True
-        tail_len = int(self.samplerate * self.recognition_time_add)
-        prev_tail = None
+        self._chunk_counter = 0
+        self._chunk_buffer.clear()
 
         while self.running_recognition:
-            # Запись recognition_time секунд
-            audio = sd.rec(
-                int(self.recognition_time * self.samplerate),
+            # записываем один «чанк» длительностью chunk_duration
+            samples = int(self.chunk_duration * self.samplerate)
+            audio_chunk = sd.rec(
+                samples,
                 samplerate=self.samplerate,
                 channels=1,
                 dtype='int16'
             )
             sd.wait()
-            now = datetime.now().strftime("%Y-%m-%d,%H:%M:%S")
+            # В буффер добавляем, а старый сам стирается
+            self._chunk_buffer.append(audio_chunk)
 
-            # Собираем buffer = хвост прошлой + свежий кусок
-            if prev_tail is None:
-                buffer = audio
+            # детект аудио-активности по RMS
+            norm = audio_chunk.astype(np.float32) / np.iinfo('int16').max
+            rms = np.sqrt(np.mean(norm ** 2))
+            if rms > self.audio_detect_threshold:
+                self.audio_active = True
+                self._audio_active_counter = int(self.audio_active_timeout / self.recognition_time)
             else:
-                buffer = np.concatenate([prev_tail, audio], axis=0)
+                if self._audio_active_counter > 0:
+                    self._audio_active_counter -= 1
+                else:
+                    self.audio_active = False
 
-            # Готовим prev_tail для следующей итерации
-            prev_tail = buffer[-tail_len:].copy() if buffer.shape[0] > tail_len else buffer.copy()
+            now = datetime.now().strftime("%Y-%m-%d,%H:%M:%S")
+            # Обработка накопившегося буффера
+            self._chunk_counter += 1
+            if self._chunk_counter >= self.chunks_per_recognition:
+                self._chunk_counter = 0
+                audio_full = np.concatenate(self._chunk_buffer, axis=0)
 
-            # Vosk
-            if self.vosk_ok:
-                audio_bytes = buffer.tobytes()
-                self.proc_vosk(audio_bytes, now)
+                # Vosk
+                if self.vosk_ok:
+                    self.proc_vosk(audio_full.tobytes(), now)
 
-            # YAMNet
-            if self.yamnet_ok:
-                buf_f32 = buffer.astype('float32') / np.iinfo('int16').max
-                self.proc_yamnet(buf_f32, now)
+                # YAMNet
+                if self.yamnet_ok:
+                    buf_f32 = audio_full.astype('float32') / np.iinfo('int16').max
+                    self.proc_yamnet(buf_f32, now)
 
         self.running_recognition_thread = False
