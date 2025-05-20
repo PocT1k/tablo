@@ -82,6 +82,7 @@ class AudioProcessor:
             print("[YAMN ERROR] Не удалось загрузить YAMNet:", e)
             QMessageBox.warning(None, "Ошибка загрузки",
                                 f'Модуль распознования звуков YAMNET отключён \nМодель не найдена или ошибка подключения tensorflow_hub \n{e}')
+        self.yamnet_text_buffer = []
 
     def start_microphone(self):
         idx = self.mic_index
@@ -121,9 +122,7 @@ class AudioProcessor:
             res = json.loads(self.recognizer.PartialResult())
             text = res.get("partial", "").strip()
 
-        # Сбрасываем старую фразу и сохраняем новую
         self.vosk_text_buffer = text
-        # логирование
         write_attendance_dated(VOSK_WORLD_PATH, text, timestamp, '[VOSK]')
 
     def proc_yamnet(self, audio_array, timestamp):
@@ -142,8 +141,7 @@ class AudioProcessor:
             if mean_scores[best_local] >= self.yamnet_threshold:
                 detected.append(group)
 
-        if not detected:
-            detected = ["None"]
+        self.yamnet_text_buffer = detected
         write_attendance_dated(YAMNET_INDICES_PATH, detected, timestamp, '[YAMN]')
 
     def proc_audio(self):

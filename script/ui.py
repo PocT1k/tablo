@@ -605,15 +605,17 @@ class MainWindow(QMainWindow):
         )
 
         # painter
-        # Индикатор звука в левом верхнем углу
         painter = QPainter(pix)
+        # Индикатор звука в левом верхнем углу
         painter.setPen(Qt.NoPen)
         # выбираем цвет по флагу audio_active
         color = Qt.green if self.audio_processor.audio_active else Qt.lightGray
         painter.setBrush(QBrush(color))
-        r = 10  # радиус круга
+        r = 10
         margin = 5
-        painter.drawEllipse(margin, margin, 2*r, 2*r)
+        w_pix = pix.width()
+        x = w_pix - margin - 2*r
+        painter.drawEllipse(x, margin, 2*r, 2*r)
 
         # последнюяя фраза VOSK
         if self.image_processor.draw_conf["vosk"]:
@@ -635,7 +637,7 @@ class MainWindow(QMainWindow):
                 x = margin
                 y = h_pix - margin
 
-                # чёрная обводка: рисуем текст четырьмя смещениями
+                # чёрная обводка - текст четырьмя смещениями
                 pen = QPen(Qt.black)
                 pen.setWidth(2)
                 painter.setPen(pen)
@@ -645,6 +647,34 @@ class MainWindow(QMainWindow):
                 # белая заливка
                 painter.setPen(Qt.white)
                 painter.drawText(x, y, text)
+
+        # события YAMNet
+        if self.image_processor.draw_conf["yamn"]:
+            lines = self.audio_processor.yamnet_text_buffer  # список строк
+            if lines:
+                # шрифт
+                font = QFont()
+                font.setPointSize(18)
+                painter.setFont(font)
+                metrics = painter.fontMetrics()
+
+                margin = 8
+                h_line = metrics.height()
+
+                for i, line in enumerate(lines):
+                    x = margin
+                    y = margin + i * h_line + metrics.ascent()
+
+                    # чёрная обводка - текст в четырёх смещениях
+                    pen = QPen(Qt.white)
+                    pen.setWidth(2)
+                    painter.setPen(pen)
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        painter.drawText(x + dx, y + dy, line)
+
+                    # белая заливка
+                    painter.setPen(Qt.black)
+                    painter.drawText(x, y, line)
         painter.end()
 
         self.video_label.setPixmap(pix)
