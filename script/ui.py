@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox
 )
 from PyQt5.QtCore import Qt, QTimer, QDate, QTime
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QBrush
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QBrush, QFont, QPen
 import os
 import cv2
 import json
@@ -48,7 +48,7 @@ class SettingsWindow(QDialog):
                 f"Программа получает доступ к выбранным интерфейчас: камере и микрофону\n"
                 f"После этого возможен сбор статистики:\n"
                 f"[FACE] Распознование лица\n"
-                f"[YOLO] Распознование предметов\n"
+                f"[YOLO] Распознование объектов\n"
                 f"[VOSK] Распознвоание слов\n"
                 f"[YAMN] Распознование звуков\n"
                 f"Собранная статистика участвует в оценке эффективности работника за выбранный период\n"
@@ -63,10 +63,10 @@ class SettingsWindow(QDialog):
         grp_layout = QVBoxLayout(grp)
         # Чекбоксы: для каждого ключа — своё описание
         for key, text in (
-            ("face",  "Отрисовывать распознавание лица"),
+            ("face",  "Отрисовывать лица FACE"),
             ("yolo",  "Отрисовывать объекты YOLO"),
-            ("vosk",  "Отрисовывать события VOSK (речь)"),
-            ("yamn",  "Отрисовывать события YAMNET")
+            ("vosk",  "Отрисовывать слова VOSK"),
+            ("yamn",  "Отрисовывать звуки YAMNET")
         ):
             # загружаем текущее значение (или True по умолчанию)
             checked = dict_get_or_set(draw_conf, key, True)
@@ -604,6 +604,7 @@ class MainWindow(QMainWindow):
             self.video_label.size(), Qt.KeepAspectRatio
         )
 
+        # painter
         # Индикатор звука в левом верхнем углу
         painter = QPainter(pix)
         painter.setPen(Qt.NoPen)
@@ -613,6 +614,37 @@ class MainWindow(QMainWindow):
         r = 10  # радиус круга
         margin = 5
         painter.drawEllipse(margin, margin, 2*r, 2*r)
+
+        # последнюяя фраза VOSK
+        if self.image_processor.draw_conf["vosk"]:
+            text = self.audio_processor.vosk_text_buffer or ""
+            if text:
+                # шрифт
+                font = QFont()
+                font.setPointSize(14)
+                painter.setFont(font)
+
+                # вычисляем координаты
+                margin = 8
+                w_pix = pix.width()
+                h_pix = pix.height()
+                # рисуем текст над самым низом
+                metrics = painter.fontMetrics()
+                text_width = metrics.horizontalAdvance(text)
+                text_height = metrics.height()
+                x = margin
+                y = h_pix - margin
+
+                # чёрная обводка: рисуем текст четырьмя смещениями
+                pen = QPen(Qt.black)
+                pen.setWidth(2)
+                painter.setPen(pen)
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    painter.drawText(x + dx, y + dy, text)
+
+                # белая заливка
+                painter.setPen(Qt.white)
+                painter.drawText(x, y, text)
         painter.end()
 
         self.video_label.setPixmap(pix)

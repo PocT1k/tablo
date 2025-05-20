@@ -16,5 +16,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-#TODO вывод текста vosk
 #TODO вывод действия yamnet

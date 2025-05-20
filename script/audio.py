@@ -53,6 +53,7 @@ class AudioProcessor:
             print("[VOSK ERROR] Не удалось загрузить Vosk:", e)
             QMessageBox.warning(None, "Ошибка загрузки",
                                 f'Модуль распознования слов VOSK отключён \nМодель не найдена \n{e}')
+        self.vosk_text_buffer = ''
 
         # YAMNet
         self.yamnet_sr = dict_get_or_set(self.settings, "yamnet_sr", 16000) or self.samplerate
@@ -120,6 +121,8 @@ class AudioProcessor:
             res = json.loads(self.recognizer.PartialResult())
             text = res.get("partial", "").strip()
 
+        # Сбрасываем старую фразу и сохраняем новую
+        self.vosk_text_buffer = text
         # логирование
         write_attendance_dated(VOSK_WORLD_PATH, text, timestamp, '[VOSK]')
 
