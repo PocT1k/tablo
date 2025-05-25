@@ -1,9 +1,10 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QLineEdit,
-    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox
+    QVBoxLayout, QInputDialog, QMessageBox, QTimeEdit, QCheckBox, QGroupBox, QSystemTrayIcon, QMenu, QAction,
+    QProgressBar
 )
-from PyQt5.QtCore import Qt, QTimer, QDate, QTime
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QBrush, QFont, QPen
+from PyQt5.QtCore import Qt, QTimer, QDate, QTime, QEvent, QCoreApplication
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QBrush, QFont, QPen, QIcon
 import os
 import cv2
 import json
@@ -14,7 +15,7 @@ from datetime import datetime
 from image import ImageProcessor
 from audio import AudioProcessor
 from load import dict_get_or_set
-from conf import SETTING_JSON_PATH
+from conf import SETTING_JSON_PATH, ICON_TRY_PATH, IMAGE_BACK_PATH
 from stats import get_stats
 
 
@@ -210,20 +211,40 @@ class SettingsWindow(QDialog):
             msg = (
                 f"По сотруднику {self.stat_name} за {date_str} "
                 f"в период {start_str}–{end_str} собрано {percent_stats:.1f}% статистики.\n"
-                f"Коэффициент работоспособности сотрудника составил {percent_work:.2f}%."
+                f"Коэффициент работоспособности сотрудника составил {percent_work:.2f}."
             )
 
-            # Показываем «краси&вую плашку»
+            # Показываем «красивую плашку»
             QMessageBox.information(
                 self,
                 "Результаты статистики",
                 msg
             )
 
+    def keyPressEvent(self, event):
+        # Если Esc — закрываем диалог (reject вызывает dlg.exit code = Rejected)
+        if event.key() == Qt.Key_Escape:
+            self.reject()
+        else:
+            # всё прочее пусть работает как обычно (например, Tab между полями и т.п.)
+            super().keyPressEvent(event)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.window_of_settings = None
+        self.image_processor = None
+        self.audio_processor = None
+        self.current_date = QDate.currentDate()
+        # Таймер для обновления видео
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._update_frame)
+        self.btn_left = None
+        self.btn_right = None
+        self.btn_camera = None
+        self.btn_microphone = None
+        self.btn_toggle = None
+        self.btn_settings = None
 
         # Загрузка JSON настроек
         self.settings_path = SETTING_JSON_PATH
@@ -239,17 +260,14 @@ class MainWindow(QMainWindow):
 
         # Заголовок и геометрия окна
         self.win_conf = dict_get_or_set(self.settings, "Window", {})
-        self.setWindowTitle(dict_get_or_set(self.win_conf, "name", "WathGarg AI"))
+        self.setWindowTitle(dict_get_or_set(self.win_conf, "name", "WatchGuard AI"))
         screen = QApplication.primaryScreen().availableGeometry()
         h = dict_get_or_set(self.win_conf, "h", 0.6)
         w = dict_get_or_set(self.win_conf, "w", 0.4)
         self.resize(int(screen.width() * w), int(screen.height() * h))
+        self.setFixedSize(self.size())
         self.move((screen.width() - self.width()) // 2,
                   (screen.height() - self.height()) // 2)
-
-        # Обработчики
-        self.image_processor = ImageProcessor(self.settings)
-        self.audio_processor = AudioProcessor(self.settings)
 
         # Вычисление геометрии
         self.margin = int(min(self.width(), self.height()) * 0.03)
@@ -264,16 +282,18 @@ class MainWindow(QMainWindow):
         self.video_label.setGeometry(
             0, 0,
             self.win_w,
-            self.win_h - self.btn_h - self.margin
+            self.win_h - self.btn_h - 2 * self.margin
         )
         self.video_label.setAlignment(Qt.AlignCenter)
 
+        self._bg = QPixmap(str(IMAGE_BACK_PATH))
+        self.video_label.setAlignment(Qt.AlignCenter)
+
+        # отрисуем фон
+        self._show_background()
+
         # Создание кнопок
         self._create_buttons()
-
-        # Таймер для обновления видео
-        self.timer = QTimer()
-        self.timer.timeout.connect(self._update_frame)
 
         # список камер
         try:
@@ -298,6 +318,113 @@ class MainWindow(QMainWindow):
         for i, d in enumerate(inputs):
             print(f"  [{i}] index={d['index']} name={d['name']}")
         print(f"[UI] Started")
+
+
+        # Системный трей
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon(str(ICON_TRY_PATH)))
+
+        # контекстное меню для иконки
+        tray_menu = QMenu(self)
+        restore_action = QAction("Открыть окно", self)
+        restore_action.triggered.connect(self.show_normal)
+        tray_menu.addAction(restore_action)
+        tray_menu.addSeparator()
+
+        self.toggle_action = QAction("Старт", self)
+        self.toggle_action.triggered.connect(self._toggle_processing)
+        tray_menu.addAction(self.toggle_action)
+        tray_menu.addSeparator()
+
+        quit_action = QAction("Выход", self)
+        quit_action.triggered.connect(QApplication.instance().quit)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        # клик на иконку тоже открывает окно
+        self.tray_icon.activated.connect(self.on_tray_activated)
+        self.tray_icon.show()
+
+
+        # фейковый loader
+        self.loader = QProgressBar(self)
+        self.loader.setRange(0, 100)
+        self.loader.setValue(0)
+        self.loader.setTextVisible(False)
+        # разместим его снизу окна
+        bar_h = 8
+        margin = 10
+        self.loader.setGeometry(
+            margin,
+            self.height() - bar_h - margin,
+            self.width() - 2*margin,
+            bar_h
+        )
+        self.loader.hide()
+
+        # таймер, который будет двигать полосу
+        self._loader_timer = QTimer(self)
+        # каждую 100 мс будем его ходить
+        self._loader_timer.setInterval(100)
+
+        # при ресайзе тоже надо двигать прогресс-бар
+        self.installEventFilter(self)
+
+    # масштабируем именно по высоте:
+    def _show_background(self):
+        h = self.video_label.height()
+        # scaledToHeight гарантирует, что высота = h, ширина сохраняется пропорционально
+        pix = self._bg.scaledToHeight(h, Qt.SmoothTransformation)
+        self.video_label.setPixmap(pix)
+
+    def eventFilter(self, obj, event):
+        if isinstance(obj, SettingsWindow):
+            return super().eventFilter(obj, event)
+        if event.type() in (QEvent.KeyPress, QEvent.KeyRelease):
+            return True
+
+        if event.type() == event.Resize:
+            bar_h = 8
+            margin = 10
+            self.loader.setGeometry(
+                margin,
+                self.height() - bar_h - margin,
+                self.width() - 2*margin,
+                bar_h
+            )
+        return super().eventFilter(obj, event)
+
+    # Вывод из трея
+    def show_normal(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show_normal()
+
+    def closeEvent(self, event):
+        if self.timer.isActive():
+            # При попытке закрыть запущенную — прячем окно в трей
+            event.ignore()
+            self.hide()
+            # опционально — подсказка о том, что мы в трей
+            self.tray_icon.showMessage(
+                "WathGarg AI",
+                "Приложение свернуто в трей. Чтобы выйти — правый клик на иконку и «Выход».",
+                QSystemTrayIcon.Information,
+                msecs=3000
+            )
+
+    def init_processors(self):
+        if not self.image_processor:
+            self.image_processor = ImageProcessor(self.settings)
+        if not self.audio_processor:
+            self.audio_processor = AudioProcessor(self.settings)
 
     def _apply_rotation(self, frame):
         if self.rotation == 90:
@@ -325,12 +452,19 @@ class MainWindow(QMainWindow):
             print(f"[SETTINGS ERROR] Не удалось сохранить настройки: {e}")
 
     def _create_buttons(self):
+        # Удаляем старые кнопки, если они существуют
+        for btn in [self.btn_left, self.btn_right,
+                    self.btn_camera, self.btn_microphone,
+                    self.btn_toggle, self.btn_settings]:
+            if btn is not None:
+                btn.deleteLater() # удаление
+
         m, b, W, y = self.margin, self.btn_h, self.win_w, self.bottom_y
 
         # Стандартные кнопки
         self.btn_left = QPushButton("⟲", self)
         self.btn_right = QPushButton("⟳", self)
-        self.btn_start = QPushButton("Старт", self)
+        self.btn_toggle = QPushButton("Остановить" if self.timer.isActive() else "Запустить", self)
         self.btn_settings = QPushButton("Настройки", self)
 
         # Кнопка выбора камеры
@@ -371,7 +505,7 @@ class MainWindow(QMainWindow):
         # Устанавливаем высоту кнопок
         for btn in (self.btn_left, self.btn_right,
                     self.btn_camera, self.btn_microphone,
-                    self.btn_start, self.btn_settings):
+                    self.btn_toggle, self.btn_settings):
             btn.setFixedHeight(b)
 
         # Ширина центральных двух кнопок
@@ -390,15 +524,15 @@ class MainWindow(QMainWindow):
         # Помещаем кнопки
         self.btn_left.setGeometry(xs[0], y, b, b)
         self.btn_right.setGeometry(xs[1], y, b, b)
-        self.btn_camera .setGeometry(xs[2], y, c, b)
+        self.btn_camera.setGeometry(xs[2], y, c, b)
         self.btn_microphone.setGeometry(xs[3], y, c, b)
-        self.btn_start.setGeometry(xs[4], y, b, b)
+        self.btn_toggle.setGeometry(xs[4], y, b, b)
         self.btn_settings.setGeometry(xs[5], y, b, b)
 
         # Поднимаем над видео
         for btn in (self.btn_left, self.btn_right,
                     self.btn_camera, self.btn_microphone,
-                    self.btn_start, self.btn_settings):
+                    self.btn_toggle, self.btn_settings):
             btn.raise_()
 
         # Привязка событий
@@ -406,7 +540,7 @@ class MainWindow(QMainWindow):
         self.btn_right.clicked.connect(self._rotate_right)
         self.btn_camera.clicked.connect(self._select_camera)
         self.btn_microphone.clicked.connect(self._select_microphone)
-        self.btn_start.clicked.connect(self._toggle_processing)
+        self.btn_toggle.clicked.connect(self._toggle_processing)
         self.btn_settings.clicked.connect(self._open_settings)
 
     def resizeEvent(self, event):
@@ -418,8 +552,11 @@ class MainWindow(QMainWindow):
         self.video_label.setGeometry(
             0, 0,
             self.win_w,
-            self.win_h - self.btn_h - self.margin
+            self.win_h - self.btn_h - 2 * self.margin
         )
+        # обновляем фон
+        self._show_background()
+        # потом пересоздаём кнопки и прогресс-бар
         self._create_buttons()
         super().resizeEvent(event)
 
@@ -487,7 +624,7 @@ class MainWindow(QMainWindow):
                         f"Не удалось ни открыть новую камеру «{new_name}» "
                         f"ни вернуть старую «{old_name}»."
                     )
-                    self._stor_processing()
+                    self._stop_processing()
                 else:
                     QMessageBox.critical(
                         self, "Ошибка смены камеры",
@@ -570,45 +707,58 @@ class MainWindow(QMainWindow):
         print(f"[UI] Выбран микрофон: {new_name}")
         self.save_settings()
 
-    def _stor_processing(self):
+    def _start_processing(self):
+        # Стартуем видео
+        try:
+            self.image_processor.start_camera()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка камеры", str(e))
+            return
+        # Стартуем аудио
+        try:
+            self.audio_processor.start_microphone()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка микрофона", str(e))
+            return
+        self.audio_processor.running_recognition = True
+        if not self.audio_processor.running_recognition_thread:
+            Thread(target=self.audio_processor.proc_audio, daemon=True).start()
+
+        self.toggle_action.setText("Стоп")
+        self.btn_toggle.setText("Остановить")
+        self.timer.start(30)
+        print("[UI PROC] Запущены обработка видео и аудио")
+
+    def _stop_processing(self):
         self.timer.stop()
         self.image_processor.stop_camera()
         self.audio_processor.stop_processing()
-        self.video_label.clear()
+        # self.video_label.clear()
+        self._show_background()
+        self.toggle_action.setText("Старт")
+        self.btn_toggle.setText("Запустить")
         print("[UI PROC] Остановлены обработка видео и аудио")
 
     def _toggle_processing(self):
         # Переключение таймера
         if not self.timer.isActive():
-            # Стартуем видео
-            try:
-                self.image_processor.start_camera()
-            except Exception as e:
-                QMessageBox.critical(self, "Ошибка камеры", str(e))
-                return
-            # Стартуем аудио
-            try:
-                self.audio_processor.start_microphone()
-            except Exception as e:
-                QMessageBox.critical(self, "Ошибка микрофона", str(e))
-                return
-            self.audio_processor.running_recognition = True
-            if not self.audio_processor.running_recognition_thread:
-                Thread(target=self.audio_processor.proc_audio, daemon=True).start()
-
-            self.timer.start(30)
-            print("[UI PROC] Запущены обработка видео и аудио")
-            self.btn_start.setText("Стоп")
+            self._start_processing()
         else:
-            self._stor_processing()
-            self.btn_start.setText("Старт")
+            self._stop_processing()
 
     def _open_settings(self):
         if not self.window_of_settings:
             self.window_of_settings = SettingsWindow(self)
         self.window_of_settings.show()
 
+    # Выключение в полночь - приложению нужен перезапуск для архивации
+    def _stop_midnight(self):
+        if QDate.currentDate() != self.current_date:
+            QMessageBox.critical(self, "Смена даты", f"Наступил следующий день - \nПерезапустите приложение для корректной работы сбора информации.")
+            QCoreApplication.quit()
+
     def _update_frame(self):
+        self._stop_midnight()
         # Видеопоток
         ret, frame = self.image_processor.get_frame()
         if not ret:
@@ -616,15 +766,17 @@ class MainWindow(QMainWindow):
         frame = self._apply_rotation(frame)
 
         # Обработка изображения (возвращает кадр и словарь с результатами)
-        processed_frame, detect_results = self.image_processor.proc_image(frame)
+        processed_frame, _ = self.image_processor.proc_image(frame)
 
         # Конвертация для Qt
         rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qt = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
         pix = QPixmap.fromImage(qt).scaled(
-            self.video_label.size(), Qt.KeepAspectRatio
+            self.video_label.size(),
+            Qt.KeepAspectRatio
         )
+        self.video_label.setPixmap(pix)
 
         # painter
         painter = QPainter(pix)

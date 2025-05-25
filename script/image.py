@@ -16,6 +16,7 @@ from conf import (FACE_MODEL_PATH, YOLO_MODEL_PATH, # модели
 class ImageProcessor:
     def __init__(self, settings):
         self.settings = settings
+        self.init_warnings: list[str] = []
         # Интервал распознавания (секунды) и индекс камеры
         self.recognition_time = dict_get_or_set(self.settings, "image_time_recognition", 2)
         self.draw_conf = dict_get_or_set(self.settings, "draw_conf", {})
@@ -49,12 +50,12 @@ class ImageProcessor:
                 self.yolo_ok = True
                 print("[YOLO] Модель YOLO загружена успешно.")
             else:
-                print("[YOLO ERROR] Модель распознования объектов не найдена")
                 raise ValueError("Модель распознования объектов не найдена")
         except Exception as e:
-            print("[YOLO ERROR] Не удалось загрузить YOLO-модель:", e)
-            QMessageBox.warning(None, "Ошибка загрузки",
-                                f'Не удалось загрузить YOLO: {e}')
+            msg = f"\n[YOLO ERROR]Не удалось загрузить YOLO: {e} \nМодуль отключён"
+            print(msg)
+            self.init_warnings.append(msg)
+            self.yolo_ok = False
 
         # Для кэширования результатов между распознаваниями
         self.last_detection_time = None
@@ -75,18 +76,18 @@ class ImageProcessor:
             self.face_ok = True
             print("[FACE] Модель Face загружена успешно.")
         except Exception as e:
-            print("[FACE ERROR] Не удалось загрузить Face:", e)
-            QMessageBox.warning(None, "Ошибка загрузки",
-                f'Не удалось загрузить Face: {e}')
-
-        if not self.face_ok:
-            print("[FACE] Модель распознования лиц не найдена")
-            QMessageBox.warning(None, "Ошибка загрузки",
-                                'Модуль распознования лиц FACE отключён\nМодель не найдена \nВы можетете новоую модель в "Настройки" - "Начать переобучение распознования лиц"')
-
+            msg = f'\n[FACE ERROR]Модель распознования лиц FACE не найдена \nМодуль отключён \nВы можетете новоую модель в "Настройки" - "Начать переобучение распознования лиц"'
+            print(msg)
+            self.init_warnings.append(msg)
+            self.face_ok = False
 
     def start_camera(self):
         self.load_face()
+        if getattr(self, "init_warnings", None):
+            msg = "\n".join(self.init_warnings)
+            QMessageBox.warning(None, "Предупреждения при загрузке Face", msg)
+            # Очищаем буфер
+            self.init_warnings.clear()
 
         # попытка открыть выбранную камеру
         idx = self.camera_index
@@ -232,7 +233,7 @@ class ImageProcessor:
 
     def proc_face(self, frame):
         if not self.face_ok:
-            return
+            return []
         faces = []
 
         # Подготовка для детекции
@@ -270,7 +271,7 @@ class ImageProcessor:
 
     def proc_yolo(self, frame):
         if not self.yolo_ok:
-            return
+            return []
         items = []
         results = self.yolo_model(frame, verbose=False)[0]
 

@@ -3,7 +3,6 @@ import json
 import numpy as np
 import math
 from datetime import datetime
-from PyQt5.QtWidgets import QMessageBox
 from vosk import Model, KaldiRecognizer
 from collections import deque
 
@@ -16,6 +15,7 @@ from conf import (VOSK_MODEL_PATH, YAMNET_MODEL_PATH, # модели
 class AudioProcessor:
     def __init__(self, settings=None):
         self.settings = settings or {}
+        self.init_warnings: list[str] = []
         self.audio_detect_threshold = dict_get_or_set( self.settings, "audio_detect_threshold", 0.0005)
         self.audio_active_timeout = dict_get_or_set(self.settings, "audio_active_timeout", 1.0)
         self.recognition_time = dict_get_or_set(self.settings, "audio_time_recognition", 3)
@@ -50,9 +50,10 @@ class AudioProcessor:
             self.vosk_ok = True
             print("[VOSK] Модель Vosk загружена успешно.")
         except Exception as e:
-            print("[VOSK ERROR] Не удалось загрузить Vosk:", e)
-            QMessageBox.warning(None, "Ошибка загрузки",
-                                f'Модуль распознования слов VOSK отключён \nМодель не найдена \n{e}')
+            msg = f"\n[VOSK ERROR] Не удалось загрузить Vosk: {e} \nМодуль отключён"
+            print(msg)
+            self.init_warnings.append(msg)
+            self.vosk_ok = False
         self.vosk_text_buffer = ''
 
         # YAMNet
@@ -79,9 +80,10 @@ class AudioProcessor:
             self.yamnet_ok = True
             print(f"[YAMN] Модель YAMNet загружена, порог распознования = {self.yamnet_threshold}")
         except Exception as e:
-            print("[YAMN ERROR] Не удалось загрузить YAMNet:", e)
-            QMessageBox.warning(None, "Ошибка загрузки",
-                                f'Модуль распознования звуков YAMNET отключён \nМодель не найдена или ошибка подключения tensorflow_hub \n{e}')
+            msg = f"\n[YAMN ERROR] Не удалось загрузить YAMNet: {e} \nМодуль отключён \nМодель не найдена или ошибка подключения tensorflow_hub"
+            print(msg)
+            self.init_warnings.append(msg)
+            self.yamnet_ok = False
         self.yamnet_text_buffer = []
 
     def start_microphone(self):

@@ -111,7 +111,7 @@
         "media": 0.7
     },
     "Window": {
-        "name": "WathGarg AI",
+        "name": "WatchGuard AI",
         "h": 0.6,
         "w": 0.4
     },
@@ -119,10 +119,10 @@
     "default_timeout": 60,
     "stats_persent_coef": 1.02,
     "stats_conf": {
-        "name_old": "Kirill",
+        "name_old": "Egor",
         "date_old": "2025-05-20",
-        "start_old": "00:46:17",
-        "end_old": "00:46:34"
+        "start_old": "18:51:30",
+        "end_old": "18:57:58"
     },
     "draw_conf": {
         "face": true,
