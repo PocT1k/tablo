@@ -1,4 +1,4 @@
-import tensorflow_hub as hub # НЕ УБИРАТЬ ЭТУ СТРОЧКУ!!! ЭТА ШТУКА ДОЛЖНА ПОДКЛЮЧАТЬСЯ В ФАЙЛЕ ТОЧКИ ВХОДА!!!
+# import tensorflow_hub as hub # НЕ УБИРАТЬ ЭТУ СТРОЧКУ!!! ЭТА ШТУКА ДОЛЖНА ПОДКЛЮЧАТЬСЯ В ФАЙЛЕ ТОЧКИ ВХОДА!!!
 import sys
 import random
 from PyQt5.QtWidgets import QApplication, QMessageBox
@@ -11,7 +11,7 @@ from conf import ICON_WINS_PATH, ICON_PANEL_PATH, ICON_TRY_PATH
 
 
 class InitThread(QThread):
-    hub
+    #hub
     error = pyqtSignal(str) # для фатальных исключений
     warning = pyqtSignal(list) # для накопленных предупреждений
     finished = pyqtSignal()

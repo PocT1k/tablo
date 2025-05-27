@@ -76,9 +76,10 @@ def compute_log_percentages(setting: dict, date_obj: date, dt_start: datetime, d
     return percs, details
 
 
-def arr_face_seconds(path, dt_start, dt_end, setting, stat_name):
+def arr_face_seconds(path, dt_start, dt_end, setting, stat_name, found_things):
     default_weight = dict_get_or_set(setting, "default_weight", 1.0)
     timeout_secs = dict_get_or_set(setting, "default_timeout", 60)
+    found_things['NotFace'] = 0
 
     # строим базовый список по секундам
     total_secs = int((dt_end - dt_start).total_seconds()) + 1
@@ -151,6 +152,9 @@ def arr_face_seconds(path, dt_start, dt_end, setting, stat_name):
 
         weights_arr[i] = w
 
+        if det == "None":
+            found_things['NotFace'] += 1
+
         # в конце цикла уменьшаем все таймеры
         for lbl in counters:
             if counters[lbl] > 0:
@@ -158,7 +162,7 @@ def arr_face_seconds(path, dt_start, dt_end, setting, stat_name):
 
     return list(zip(times, detections, weights_arr))
 
-def arr_yolo_seconds(path, dt_start, dt_end, setting):
+def arr_yolo_seconds(path, dt_start, dt_end, setting, found_things):
     # параметры
     default_weight = dict_get_or_set(setting, "default_weight", 1.0)
     timeout_secs = dict_get_or_set(setting, "default_timeout", 60)
@@ -174,6 +178,11 @@ def arr_yolo_seconds(path, dt_start, dt_end, setting):
 
     # веса предметов
     yolo_weights = dict_get_or_set(setting, "yolo_weights", {})
+    # инициализируем счётчики у found_things
+    for lbl in yolo_weights:
+        if lbl != "None":
+            found_things.setdefault(lbl, 0)
+
     # читаем события
     events_by_sec: dict[int, list[str]] = {}
     with open(path, newline='', encoding='utf-8') as f:
@@ -198,12 +207,19 @@ def arr_yolo_seconds(path, dt_start, dt_end, setting):
     counters = {lbl: 0 for lbl in yolo_weights}
     # формируем результат
     result: list[tuple[datetime.time, list[str], float]] = []
+
     for i in range(total_secs):
         # обновляем счётчики по событиям этой секунды
         for lbl in events_by_sec.get(i, []):
             counters[lbl] = min(counters[lbl] + timeout_secs, max_counter)
+
         # определяем активные предметы
         active = [lbl for lbl, cnt in counters.items() if cnt >= detect_threshold]
+
+        for lbl in active:
+            if lbl != "None":
+                found_things[lbl] += 1
+
         # вычисляем вес
         if active:
             w = 1.0
@@ -220,83 +236,96 @@ def arr_yolo_seconds(path, dt_start, dt_end, setting):
 
     return result
 
-def arr_yamn_vosk_seconds(path_yamn, path_vosk, dt_start, dt_end, setting):
+def arr_yamn_vosk_seconds(path_yamn, path_vosk, dt_start, dt_end, setting, found_things):
+    # Загрузка параметров
     default_weight = dict_get_or_set(setting, "default_weight", 1.0)
     audio_timeout = int(dict_get_or_set(setting, "audio_time_recognition", 0) * 1.5)
     yamnet_weights = dict_get_or_set(setting, "yamnet_weights", {})
     vosk_weights = dict_get_or_set(setting, "vosk_weights", {})
 
-    # строим временную шкалу
+    # Инициализация счётчика найденных событий
+    # для всех Yamnet-меток (кроме "None") и для "speech" из Vosk
+    for lbl in yamnet_weights:
+        if lbl != "None":
+            found_things.setdefault(lbl, 0)
+    if "speech" in vosk_weights:
+        found_things.setdefault("speech", 0)
+
+    # Построение временной шкалы
     total_secs = int((dt_end - dt_start).total_seconds()) + 1
     times = [(dt_start + timedelta(seconds=i)).time() for i in range(total_secs)]
 
-    # если оба файла отсутствуют — сразу всё default_weight
+    # Если нет ни одного файла — сразу возвращаем всё default_weight
     if not os.path.exists(path_yamn) and not os.path.exists(path_vosk):
         return [(t, [], default_weight) for t in times]
 
-    # парсим yamnet: sec_idx -> label
-    events_yam: dict[int, str] = {}
+    # Чтение Vosk (любая запись ≠ "None" считается речью)
+    events_vosk = {}
+    if os.path.exists(path_vosk):
+        with open(path_vosk, newline='', encoding='utf-8', errors='ignore') as f:
+            for row in csv.reader(f):
+                if len(row) < 3: continue
+                try:
+                    ts = datetime.strptime(f"{row[0]} {row[1]}", "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+                if dt_start <= ts <= dt_end and row[2] != "None":
+                    idx = int((ts.replace(microsecond=0) - dt_start).total_seconds())
+                    events_vosk[idx] = True
+
+    # Чтение Yamnet (берём ровно одну метку в третьем столбце)
+    events_yam = {}
     if os.path.exists(path_yamn):
         with open(path_yamn, newline='', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            for row in reader:
+            for row in csv.reader(f):
                 if len(row) < 3: continue
                 try:
-                    ts = datetime.strptime(f"{row[0]} {row[1]}",
-                                           "%Y-%m-%d %H:%M:%S")
+                    ts = datetime.strptime(f"{row[0]} {row[1]}", "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     continue
-                if ts < dt_start or ts > dt_end:
-                    continue
-                idx = int((ts.replace(microsecond=0) - dt_start).total_seconds())
-                events_yam[idx] = row[2]  # one of "None","speech","typing","media"
+                if dt_start <= ts <= dt_end:
+                    idx = int((ts.replace(microsecond=0) - dt_start).total_seconds())
+                    events_yam[idx] = row[2]  # "None", "speech", "typing", "media", …
 
-    # парсим vosk: sec_idx -> True, если есть слова
-    events_vosk: dict[int, bool] = {}
-    if os.path.exists(path_vosk):
-        with open(path_vosk, newline='', encoding='utf-8', errors='ignore') as f: # Ща игнорирование
-        # Или отрыть в виндовой кодировке with open(path_vosk, newline='', encoding='cp1251') as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) < 3: continue
-                try:
-                    ts = datetime.strptime(f"{row[0]} {row[1]}",
-                                           "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    continue
-                if ts < dt_start or ts > dt_end:
-                    continue
-                idx = int((ts.replace(microsecond=0) - dt_start).total_seconds())
-                # любое не-"None" в третьем столбце считаем «речь»
-                events_vosk[idx] = row[2] != "None"
-
-    # заводим счётчики для yamnet-меток (кроме "None")
+    # Словарь-таймеры для каждой метки
     counters = {lbl: 0 for lbl in yamnet_weights if lbl != "None"}
+    counters["speech"] = 0
 
-    result: list[tuple[datetime.time, list[str], float]] = []
+    # Основной проход по каждой секунде
+    result = []
     for i in range(total_secs):
-        # 1) обновляем счётчики по yamnet
-        lbl_y = events_yam.get(i)
-        if lbl_y and lbl_y in counters:
-            counters[lbl_y] = audio_timeout
-        # 2) если yamnet не дал «speech», но vosk отметил речь — ставим speech
-        elif events_vosk.get(i, False):
+        # 8.1) Vosk-процессинг (первым)
+        if events_vosk.get(i, False):
             counters["speech"] = audio_timeout
 
-        # 3) активные метки
+        # Yamnet-процессинг (вторым, может перезаписать)
+        lbl_y = events_yam.get(i)
+        if lbl_y and lbl_y != "None":
+            counters[lbl_y] = audio_timeout
+
+        # Составляем список активных меток
         active = [lbl for lbl, ct in counters.items() if ct > 0]
 
-        # 4) вычисляем вес
-        if active:
-            w = 1.0
-            for lbl in active:
-                w *= yamnet_weights.get(lbl, default_weight)
-        else:
+        # Выбираем единственную «главную» метку с наибольшим весом
+        if not active:
+            chosen = None
             w = default_weight
+        else:
+            chosen, w = max(
+                ((lbl,
+                  vosk_weights.get(lbl, default_weight)
+                  if lbl == "speech"
+                  else yamnet_weights.get(lbl, default_weight))
+                 for lbl in active),
+                key=lambda x: x[1]
+            )
+            # Инкрементируем счётчик в found_things
+            found_things[chosen] += 1
 
-        result.append((times[i], active, w))
+        # Записываем результат: возвращаем либо [] (если None), либо [chosen]
+        result.append((times[i], [] if chosen is None else [chosen], w))
 
-        # 5) уменьшаем все счётчики
+        # Уменьшаем все таймеры на 1
         for lbl in counters:
             if counters[lbl] > 0:
                 counters[lbl] -= 1
@@ -324,21 +353,23 @@ def get_stats(setting: dict, stat_name: str, stat_period: []):
     #     print(f"  {fname}: {cnt} / {exp} → {pct:.1f}% (файл {'есть' if os.path.exists(path) else 'нет'})")
     # print(f"Общий процент: {percent_stats:.1f}%")
 
+    #Массив найденных предметов
+    found_things = {}
 
     # Сегментация face
     path_face, _ = get_log_path(LOGS_FILES[0], LOGS_OLDS[0], date_obj)
-    arr_face = arr_face_seconds(path_face, dt_start, dt_end, setting, stat_name)
+    arr_face = arr_face_seconds(path_face, dt_start, dt_end, setting, stat_name, found_things)
     # print('face', *arr_face, sep='\n')
 
     # Сегментация yolo
     path_yolo, _ = get_log_path(LOGS_FILES[1], LOGS_OLDS[1], date_obj)
-    arr_yolo = arr_yolo_seconds(path_yolo, dt_start, dt_end, setting)
+    arr_yolo = arr_yolo_seconds(path_yolo, dt_start, dt_end, setting, found_things)
     # print('yolo', *arr_yolo, sep='\n')
 
     # Сегментация yamnet и vosk
     path_vosk, _ = get_log_path(LOGS_FILES[2], LOGS_OLDS[2], date_obj)
     path_yamn, _ = get_log_path(LOGS_FILES[3], LOGS_OLDS[3], date_obj)
-    arr_audio = arr_yamn_vosk_seconds(path_yamn, path_vosk, dt_start, dt_end, setting)
+    arr_audio = arr_yamn_vosk_seconds(path_yamn, path_vosk, dt_start, dt_end, setting, found_things)
     # print('audio', *arr_audio, sep='\n')
 
     # Общий массив всех сегментов
@@ -359,4 +390,5 @@ def get_stats(setting: dict, stat_name: str, stat_period: []):
     else:
         percent_work = 0.0
 
-    return percent_stats, percent_work
+    found_things['len'] = len(arr_merged)
+    return percent_stats, percent_work, found_things

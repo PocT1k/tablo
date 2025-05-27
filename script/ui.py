@@ -199,22 +199,53 @@ class SettingsWindow(QDialog):
 
         # Если пользователь нажал OK и всё прошло в accept — запускаем расчёт
         if result == QDialog.Accepted:
-            percent_stats, percent_work = get_stats(self.parent.settings, self.stat_name, self.stat_period)
+            percent_stats, percent_work, found_things = get_stats(
+                self.parent.settings, self.stat_name, self.stat_period
+            )
             print(f"[STATS] Собрано {percent_stats}%, Работоспособность {percent_work}")
+            # [STATS] Собрано 70.52900982977704%, Работоспособность 0.9331962296486755
+            print('[STATS]', found_things)
+            # [STATS] {'NotFace': 67, 'people': 368, 'food': 57, 'technic': 0, 'telephone': 77, 'book': 0, 'speech': 211, 'typing': 8, 'media': 4, 'len': 389}
             # Формируем строки для даты и времени
             d, t0, t1 = self.stat_period
             date_str = d.isoformat()
             start_str = t0.strftime("%H:%M:%S")
             end_str = t1.strftime("%H:%M:%S")
 
-            # Собираем сообщение
-            msg = (
+            # Берём общее число секунд
+            total = found_things.get('len', 1)
+
+            # Сколько отсутствовал человек
+            absent = found_things.get('NotFace', 0)
+            absent_pct = absent / total * 100 if total else 0
+
+            # Сколько раз был food и telephone
+            food = found_things.get('food', 0)
+            phone = found_things.get('telephone', 0)
+
+            # Отвлечения: speech + media
+            distract = found_things.get('speech', 0) + found_things.get('media', 0)
+
+            # Собираем строки
+            lines = [
                 f"По сотруднику {self.stat_name} за {date_str} "
-                f"в период {start_str}–{end_str} собрано {percent_stats:.1f}% статистики.\n"
-                f"Коэффициент работоспособности сотрудника составил {percent_work:.2f}."
+                f"в период {start_str}–{end_str} собрано {percent_stats:.1f}% статистики.",
+                f"Отсутствие человека в кадре: {absent_pct:.1f}% времени."
+            ]
+            if food:
+                lines.append(f"Еда присутствовала в кадре: {food / total * 100:.1f}% времени.")
+            if phone:
+                lines.append(f"Телефон присутствовал в кадре: {phone / total * 100:.1f}% времени.")
+            if distract:
+                lines.append(
+                    f"Человек отвлекался (речь или СМИ): {distract / total * 100:.1f}% времени."
+                )
+            lines.append(
+                f"\nКоэффициент работоспособности сотрудника составил {percent_work:.2f}%."
             )
 
-            # Показываем «красивую плашку»
+            msg = "\n".join(lines)
+
             QMessageBox.information(
                 self,
                 "Результаты статистики",
